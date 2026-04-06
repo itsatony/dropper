@@ -3,12 +3,9 @@ package dropper
 import (
 	"context"
 	"crypto/subtle"
-	"html/template"
-	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
-	"path/filepath"
 	"strings"
 )
 
@@ -18,35 +15,11 @@ type contextKey string
 // sessionContextKey is the context key used to store the session.
 const sessionContextKey contextKey = "session"
 
-// loginData is the data passed to the login template.
-type loginData struct {
-	Error string
-}
-
 // SessionFromContext retrieves the session from the request context.
 // Returns nil if no session is present.
 func SessionFromContext(ctx context.Context) *Session {
 	s, _ := ctx.Value(sessionContextKey).(*Session)
 	return s
-}
-
-// parseLoginTemplate parses the login template set from the given FS.
-// Called once at handler creation time, not per-request.
-func parseLoginTemplate(templateFS fs.FS) (*template.Template, error) {
-	return template.ParseFS(templateFS,
-		filepath.Join(TemplateBaseDir, TemplateLayout),
-		filepath.Join(TemplateBaseDir, TemplateLogin),
-	)
-}
-
-// renderLoginPage renders the login page with an optional error message.
-// statusCode is written after headers are set but before the body.
-func renderLoginPage(w http.ResponseWriter, tmpl *template.Template, statusCode int, errMsg string, logger *slog.Logger) {
-	w.Header().Set(HeaderContentType, ContentTypeHTML)
-	w.WriteHeader(statusCode)
-	if err := tmpl.ExecuteTemplate(w, TemplateLayout, loginData{Error: errMsg}); err != nil {
-		logger.Error(ErrMsgTemplateRender, LogFieldError, err)
-	}
 }
 
 // setSessionCookie sets the session cookie on the response.
@@ -90,26 +63,18 @@ func wantsJSON(r *http.Request) bool {
 }
 
 // HandleLoginPage returns a handler that renders the login form.
-// GET /login
-func HandleLoginPage(templateFS fs.FS, logger *slog.Logger) (http.HandlerFunc, error) {
-	tmpl, err := parseLoginTemplate(templateFS)
-	if err != nil {
-		return nil, err
-	}
-
+// GET /login — uses the centralized TemplateSet.
+func HandleLoginPage(ts *TemplateSet, logger *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		renderLoginPage(w, tmpl, http.StatusOK, "", logger)
-	}, nil
+		if err := ts.RenderPage(w, PageLogin, http.StatusOK, loginData{}); err != nil {
+			logger.Error(ErrMsgTemplateRender, LogFieldError, err)
+		}
+	}
 }
 
 // HandleLogin returns a handler that validates the shared secret, creates a
-// session, and sets a cookie. POST /login
-func HandleLogin(store *SessionStore, configSecret string, limiter *RateLimiter, templateFS fs.FS, logger *slog.Logger) (http.HandlerFunc, error) {
-	tmpl, err := parseLoginTemplate(templateFS)
-	if err != nil {
-		return nil, err
-	}
-
+// session, and sets a cookie. POST /login — uses the centralized TemplateSet.
+func HandleLogin(store *SessionStore, configSecret string, limiter *RateLimiter, ts *TemplateSet, logger *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ip := clientIP(r)
 
@@ -120,13 +85,17 @@ func HandleLogin(store *SessionStore, configSecret string, limiter *RateLimiter,
 				RespondError(w, http.StatusTooManyRequests, ErrCodeTooManyReqs, ErrMsgRateLimitExceeded)
 				return
 			}
-			renderLoginPage(w, tmpl, http.StatusTooManyRequests, ErrMsgRateLimitExceeded, logger)
+			if err := ts.RenderPage(w, PageLogin, http.StatusTooManyRequests, loginData{Error: ErrMsgRateLimitExceeded}); err != nil {
+				logger.Error(ErrMsgTemplateRender, LogFieldError, err)
+			}
 			return
 		}
 
 		if err := r.ParseForm(); err != nil {
 			logger.Warn(LogMsgLoginFailed, LogFieldIP, ip, LogFieldError, err)
-			renderLoginPage(w, tmpl, http.StatusBadRequest, ErrMsgInvalidCredential, logger)
+			if err := ts.RenderPage(w, PageLogin, http.StatusBadRequest, loginData{Error: ErrMsgInvalidCredential}); err != nil {
+				logger.Error(ErrMsgTemplateRender, LogFieldError, err)
+			}
 			return
 		}
 
@@ -135,7 +104,9 @@ func HandleLogin(store *SessionStore, configSecret string, limiter *RateLimiter,
 		// Constant-time comparison to prevent timing attacks.
 		if subtle.ConstantTimeCompare([]byte(inputSecret), []byte(configSecret)) != 1 {
 			logger.Warn(LogMsgLoginFailed, LogFieldIP, ip)
-			renderLoginPage(w, tmpl, http.StatusUnauthorized, ErrMsgInvalidCredential, logger)
+			if err := ts.RenderPage(w, PageLogin, http.StatusUnauthorized, loginData{Error: ErrMsgInvalidCredential}); err != nil {
+				logger.Error(ErrMsgTemplateRender, LogFieldError, err)
+			}
 			return
 		}
 
@@ -156,7 +127,7 @@ func HandleLogin(store *SessionStore, configSecret string, limiter *RateLimiter,
 		)
 
 		http.Redirect(w, r, RouteRoot, http.StatusSeeOther)
-	}, nil
+	}
 }
 
 // HandleLogout returns a handler that destroys the session and clears the

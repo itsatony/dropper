@@ -105,6 +105,21 @@ const (
 	RouteLogin   = "/login"
 	RouteLogout  = "/logout"
 	RouteRoot    = "/"
+	RouteFiles   = "/files"
+)
+
+// --- Query parameter names ---
+
+const (
+	QueryParamPath      = "path"
+	QueryParamSortBy    = "sort"
+	QueryParamSortOrder = "order"
+)
+
+// --- Default query values ---
+
+const (
+	DefaultBrowsePath = "."
 )
 
 // --- Static file serving ---
@@ -348,6 +363,26 @@ const (
 	RateLimitWindow = 1 * time.Minute
 )
 
+// --- Toast types ---
+
+const (
+	ToastSuccess = "success"
+	ToastError   = "error"
+	ToastInfo    = "info"
+)
+
+// --- Breadcrumb ---
+
+const (
+	BreadcrumbRootLabel = "Home"
+)
+
+// --- Display formats ---
+
+const (
+	ModTimeDisplayFormat = "2006-01-02 15:04"
+)
+
 // --- Auth error codes ---
 
 const (
@@ -364,6 +399,46 @@ const (
 	ErrMsgTokenGeneration   = "failed to generate session token"
 	ErrMsgTemplateRender    = "failed to render template"
 	ErrMsgTemplateParse     = "failed to parse templates"
+)
+
+// --- Template log messages ---
+
+const (
+	LogMsgTemplatesParsed = "template set parsed successfully"
+	LogMsgTemplateRender  = "template rendered"
+)
+
+// --- File browsing log messages ---
+
+const (
+	LogMsgBrowseDir      = "directory listed"
+	LogMsgBrowseDenied   = "directory browse denied"
+	LogMsgBrowseNotFound = "directory not found"
+)
+
+// --- File browsing error messages ---
+
+const (
+	ErrMsgBrowseDir   = "failed to list directory"
+	ErrMsgBrowsePath  = "invalid browse path"
+	ErrMsgTemplateSet = "failed to create template set"
+)
+
+// --- File browsing error codes ---
+
+const (
+	ErrCodeBrowseFailed = "browse_failed"
+)
+
+// --- File browsing log fields ---
+
+const (
+	LogFieldBrowsePath = "browse_path"
+	LogFieldSortBy     = "sort_by"
+	LogFieldSortOrder  = "sort_order"
+	LogFieldFileCount  = "file_count"
+	LogFieldHTMX       = "htmx"
+	LogFieldTemplate   = "template"
 )
 
 // --- Auth log messages ---
@@ -392,9 +467,37 @@ const (
 // --- Template names ---
 
 const (
-	TemplateBaseDir = "templates"
-	TemplateLayout  = "layout.html"
-	TemplateLogin   = "login.html"
+	TemplateBaseDir       = "templates"
+	TemplatePartialsDir   = "partials"
+	TemplateComponentsDir = "components"
+	TemplateLayout        = "layout.html"
+	TemplateLogin         = "login.html"
+	TemplateMain          = "main.html"
+	TemplateBreadcrumbs   = "breadcrumbs.html"
+	TemplateFilelist      = "filelist.html"
+	TemplateDropzone      = "dropzone.html"
+	TemplateBookmarks     = "bookmarks.html"
+	TemplateToast         = "toast.html"
+	TemplatePreview       = "preview.html"
+)
+
+// --- Template page keys (for TemplateSet map) ---
+
+const (
+	PageLogin = "login"
+	PageMain  = "main"
+)
+
+// --- Template block names ---
+
+const (
+	BlockContent     = "content"
+	BlockBreadcrumbs = "breadcrumbs"
+	BlockFilelist    = "filelist"
+	BlockDropzone    = "dropzone"
+	BlockBookmarks   = "bookmarks"
+	BlockToast       = "toast"
+	BlockPreview     = "preview"
 )
 
 // --- HTTP headers (auth) ---
@@ -402,6 +505,21 @@ const (
 const (
 	HeaderAccept   = "Accept"
 	HeaderLocation = "Location"
+)
+
+// --- HTMX headers ---
+
+const (
+	HeaderHXRequest = "HX-Request"
+	HeaderHXTarget  = "HX-Target"
+	HeaderHXTrigger = "HX-Trigger"
+	HeaderHXSwapOOB = "HX-Swap-Oob"
+)
+
+// --- HTMX header values ---
+
+const (
+	HXRequestTrue = "true"
 )
 
 // --- Content types (auth) ---

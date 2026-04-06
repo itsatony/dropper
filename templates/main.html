@@ -1,0 +1,30 @@
+{{define "content"}}
+<header class="app-header">
+  <h1 class="app-title">dropper</h1>
+  <nav class="app-nav">
+    <form method="POST" action="/logout" class="logout-form">
+      <button type="submit" class="btn btn-logout">Logout</button>
+    </form>
+  </nav>
+</header>
+
+<div class="app-layout">
+  <aside class="sidebar">
+    {{template "bookmarks" .}}
+  </aside>
+
+  <main class="main-content">
+    <div id="file-browser">
+      {{template "breadcrumbs" .}}
+      {{template "filelist" .}}
+    </div>
+
+    {{if not .Readonly}}
+    {{template "dropzone" .}}
+    {{end}}
+  </main>
+</div>
+
+{{template "toast" .}}
+{{template "preview" .}}
+{{end}}

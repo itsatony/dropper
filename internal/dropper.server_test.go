@@ -26,13 +26,20 @@ project:
 
 func testConfig(t *testing.T) *Config {
 	t.Helper()
+	rootDir := t.TempDir()
+
+	// Create test file structure for browsing tests.
+	require.NoError(t, os.Mkdir(filepath.Join(rootDir, "docs"), DirPermissions))
+	require.NoError(t, os.WriteFile(filepath.Join(rootDir, "hello.txt"), []byte("hello world"), FilePermissions))
+	require.NoError(t, os.WriteFile(filepath.Join(rootDir, "docs", "notes.txt"), []byte("notes"), FilePermissions))
+
 	return &Config{
 		Dropper: DropperConfig{
 			ListenPort:     0,
 			Secret:         "test-secret-for-unit-tests",
 			SessionTTL:     DefaultSessionTTL,
 			RateLimitLogin: DefaultRateLimitLogin,
-			RootDir:        "/tmp",
+			RootDir:        rootDir,
 			MaxUploadBytes: DefaultMaxUploadBytes,
 			AuditLogPath:   filepath.Join(t.TempDir(), DefaultAuditLogPath),
 			Logging: LoggingConfig{
@@ -397,4 +404,262 @@ func TestServer_Shutdown_ClosesAuditLogger(t *testing.T) {
 
 	// Shutdown should close audit logger without error.
 	assert.NoError(t, srv.Shutdown(t.Context()))
+}
+
+// --- File browser integration tests ---
+
+// loginAndGetCookie performs a login and returns the session cookie.
+func loginAndGetCookie(t *testing.T, tsURL string, secret string) *http.Cookie {
+	t.Helper()
+	client := noRedirectClient()
+
+	form := url.Values{}
+	form.Set(FormFieldLoginInput, secret)
+	resp, err := client.Post(tsURL+RouteLogin, ContentTypeForm, strings.NewReader(form.Encode()))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	require.Equal(t, http.StatusSeeOther, resp.StatusCode)
+
+	for _, c := range resp.Cookies() {
+		if c.Name == SessionCookieName {
+			return c
+		}
+	}
+
+	t.Fatal("login did not return session cookie")
+	return nil
+}
+
+func TestServer_MainPage_AuthRequired(t *testing.T) {
+	initTestVersion(t)
+	cfg := testConfig(t)
+	srv, err := NewServer(cfg, testLogger(), nil, testTemplateFS())
+	require.NoError(t, err)
+
+	ts := httptest.NewServer(srv.Router())
+	defer ts.Close()
+
+	client := noRedirectClient()
+
+	// GET / without session → 303 to /login.
+	resp, err := client.Get(ts.URL + RouteRoot)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusSeeOther, resp.StatusCode)
+	assert.Equal(t, RouteLogin, resp.Header.Get(HeaderLocation))
+}
+
+func TestServer_MainPage_Authenticated(t *testing.T) {
+	initTestVersion(t)
+	cfg := testConfig(t)
+	srv, err := NewServer(cfg, testLogger(), nil, testTemplateFS())
+	require.NoError(t, err)
+
+	ts := httptest.NewServer(srv.Router())
+	defer ts.Close()
+
+	cookie := loginAndGetCookie(t, ts.URL, cfg.Dropper.Secret)
+
+	// GET / with valid session → 200 + file browser HTML.
+	req, err := http.NewRequest(http.MethodGet, ts.URL+RouteRoot, nil)
+	require.NoError(t, err)
+	req.AddCookie(cookie)
+
+	resp, err := noRedirectClient().Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	bodyStr := string(body)
+
+	// Should contain file listing.
+	assert.Contains(t, bodyStr, "docs")
+	assert.Contains(t, bodyStr, "hello.txt")
+	// Should contain breadcrumbs.
+	assert.Contains(t, bodyStr, BreadcrumbRootLabel)
+}
+
+func TestServer_FileBrowsing_Flow(t *testing.T) {
+	initTestVersion(t)
+	cfg := testConfig(t)
+	srv, err := NewServer(cfg, testLogger(), nil, testTemplateFS())
+	require.NoError(t, err)
+
+	ts := httptest.NewServer(srv.Router())
+	defer ts.Close()
+
+	cookie := loginAndGetCookie(t, ts.URL, cfg.Dropper.Secret)
+	client := noRedirectClient()
+
+	// Step 1: Browse root directory.
+	req, err := http.NewRequest(http.MethodGet, ts.URL+RouteRoot, nil)
+	require.NoError(t, err)
+	req.AddCookie(cookie)
+
+	resp, err := client.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	assert.Contains(t, string(body), "docs")
+
+	// Step 2: Navigate to subdirectory via /files (HTMX style).
+	req2, err := http.NewRequest(http.MethodGet, ts.URL+RouteFiles+"?"+QueryParamPath+"=docs", nil)
+	require.NoError(t, err)
+	req2.AddCookie(cookie)
+	req2.Header.Set(HeaderHXRequest, HXRequestTrue)
+
+	resp2, err := client.Do(req2)
+	require.NoError(t, err)
+	defer resp2.Body.Close()
+
+	assert.Equal(t, http.StatusOK, resp2.StatusCode)
+
+	body2, err := io.ReadAll(resp2.Body)
+	require.NoError(t, err)
+	bodyStr2 := string(body2)
+	assert.Contains(t, bodyStr2, "notes.txt")
+	assert.Contains(t, bodyStr2, "docs")
+}
+
+func TestServer_HTMX_Navigation(t *testing.T) {
+	initTestVersion(t)
+	cfg := testConfig(t)
+	srv, err := NewServer(cfg, testLogger(), nil, testTemplateFS())
+	require.NoError(t, err)
+
+	ts := httptest.NewServer(srv.Router())
+	defer ts.Close()
+
+	cookie := loginAndGetCookie(t, ts.URL, cfg.Dropper.Secret)
+
+	// HTMX request should return partial HTML (no DOCTYPE).
+	req, err := http.NewRequest(http.MethodGet, ts.URL+RouteFiles+"?"+QueryParamPath+"=.", nil)
+	require.NoError(t, err)
+	req.AddCookie(cookie)
+	req.Header.Set(HeaderHXRequest, HXRequestTrue)
+
+	resp, err := noRedirectClient().Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	bodyStr := string(body)
+
+	// Partial: no full page layout.
+	assert.NotContains(t, bodyStr, "<!DOCTYPE")
+	// But should contain content.
+	assert.Contains(t, bodyStr, BreadcrumbRootLabel)
+}
+
+func TestServer_ReadonlyMode(t *testing.T) {
+	initTestVersion(t)
+	cfg := testConfig(t)
+	cfg.Dropper.Readonly = true
+
+	srv, err := NewServer(cfg, testLogger(), nil, testTemplateFS())
+	require.NoError(t, err)
+
+	ts := httptest.NewServer(srv.Router())
+	defer ts.Close()
+
+	cookie := loginAndGetCookie(t, ts.URL, cfg.Dropper.Secret)
+
+	req, err := http.NewRequest(http.MethodGet, ts.URL+RouteRoot, nil)
+	require.NoError(t, err)
+	req.AddCookie(cookie)
+
+	resp, err := noRedirectClient().Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	bodyStr := string(body)
+
+	// Readonly: no dropzone.
+	assert.NotContains(t, bodyStr, "dropzone")
+	// But file listing should still be present.
+	assert.Contains(t, bodyStr, "docs")
+}
+
+func TestServer_LoginRedirectAfterAuth(t *testing.T) {
+	initTestVersion(t)
+	cfg := testConfig(t)
+	srv, err := NewServer(cfg, testLogger(), nil, testTemplateFS())
+	require.NoError(t, err)
+
+	ts := httptest.NewServer(srv.Router())
+	defer ts.Close()
+
+	client := noRedirectClient()
+
+	// Login should redirect to / (RouteRoot).
+	form := url.Values{}
+	form.Set(FormFieldLoginInput, cfg.Dropper.Secret)
+	resp, err := client.Post(ts.URL+RouteLogin, ContentTypeForm, strings.NewReader(form.Encode()))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusSeeOther, resp.StatusCode)
+	assert.Equal(t, RouteRoot, resp.Header.Get(HeaderLocation))
+}
+
+func TestServer_FilesRoute_AuthRequired(t *testing.T) {
+	initTestVersion(t)
+	cfg := testConfig(t)
+	srv, err := NewServer(cfg, testLogger(), nil, testTemplateFS())
+	require.NoError(t, err)
+
+	ts := httptest.NewServer(srv.Router())
+	defer ts.Close()
+
+	client := noRedirectClient()
+
+	// GET /files without session → redirect to /login.
+	resp, err := client.Get(ts.URL + RouteFiles)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusSeeOther, resp.StatusCode)
+	assert.Equal(t, RouteLogin, resp.Header.Get(HeaderLocation))
+}
+
+func TestServer_FilesRoute_JSONAuth(t *testing.T) {
+	initTestVersion(t)
+	cfg := testConfig(t)
+	srv, err := NewServer(cfg, testLogger(), nil, testTemplateFS())
+	require.NoError(t, err)
+
+	ts := httptest.NewServer(srv.Router())
+	defer ts.Close()
+
+	// GET /files with Accept: application/json, no session → 401 JSON.
+	req, err := http.NewRequest(http.MethodGet, ts.URL+RouteFiles, nil)
+	require.NoError(t, err)
+	req.Header.Set(HeaderAccept, ContentTypeJSON)
+
+	resp, err := noRedirectClient().Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+
+	var errBody ErrorBody
+	err = json.NewDecoder(resp.Body).Decode(&errBody)
+	require.NoError(t, err)
+	assert.Equal(t, ErrCodeUnauthorized, errBody.Code)
 }

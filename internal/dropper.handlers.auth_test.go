@@ -24,6 +24,9 @@ func authTestLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
+// testTemplateFS returns an in-memory FS containing all templates needed
+// for the TemplateSet. Must include layout, login, main, all partials, and
+// all components — same structure as the real templates/ directory.
 func testTemplateFS() fstest.MapFS {
 	return fstest.MapFS{
 		"templates/layout.html": &fstest.MapFile{
@@ -32,7 +35,36 @@ func testTemplateFS() fstest.MapFS {
 		"templates/login.html": &fstest.MapFile{
 			Data: []byte(`{{define "content"}}<form method="POST" action="/login"><input type="password" name="secret"><button type="submit">Login</button>{{if .Error}}<p class="error">{{.Error}}</p>{{end}}</form>{{end}}`),
 		},
+		"templates/main.html": &fstest.MapFile{
+			Data: []byte(`{{define "content"}}<div id="file-browser">{{template "breadcrumbs" .}}{{template "filelist" .}}</div>{{if not .Readonly}}{{template "dropzone" .}}{{end}}{{template "bookmarks" .}}{{template "toast" .}}{{template "preview" .}}{{end}}`),
+		},
+		"templates/partials/breadcrumbs.html": &fstest.MapFile{
+			Data: []byte(`{{define "breadcrumbs"}}<nav class="breadcrumbs">{{range $i, $seg := .Breadcrumbs}}{{if $i}} / {{end}}<span>{{$seg.Label}}</span>{{end}}</nav>{{end}}`),
+		},
+		"templates/partials/filelist.html": &fstest.MapFile{
+			Data: []byte(`{{define "filelist"}}<ul class="filelist">{{range .Entries}}<li class="{{if .IsDir}}filelist-dir{{else}}filelist-file{{end}}">{{.Name}}{{if not .IsDir}} ({{.FormattedSize}}){{end}}</li>{{end}}{{if not .Entries}}<li class="filelist-empty">Empty</li>{{end}}</ul>{{end}}`),
+		},
+		"templates/partials/dropzone.html": &fstest.MapFile{
+			Data: []byte(`{{define "dropzone"}}<div class="dropzone" id="dropzone">Drop files here</div>{{end}}`),
+		},
+		"templates/partials/bookmarks.html": &fstest.MapFile{
+			Data: []byte(`{{define "bookmarks"}}<div class="bookmarks" id="bookmarks"></div>{{end}}`),
+		},
+		"templates/partials/toast.html": &fstest.MapFile{
+			Data: []byte(`{{define "toast"}}<!-- toast -->{{end}}`),
+		},
+		"templates/components/preview.html": &fstest.MapFile{
+			Data: []byte(`{{define "preview"}}<div class="preview-modal" id="preview-modal" hidden></div>{{end}}`),
+		},
 	}
+}
+
+// testTemplateSet creates a TemplateSet from the test FS.
+func testTemplateSet(t *testing.T) *TemplateSet {
+	t.Helper()
+	ts, err := NewTemplateSet(testTemplateFS())
+	require.NoError(t, err)
+	return ts
 }
 
 func testAuthStore(t *testing.T) *SessionStore {
@@ -55,8 +87,8 @@ func loginFormBody(secret string) io.Reader {
 // --- HandleLoginPage tests ---
 
 func TestHandleLoginPage_RendersForm(t *testing.T) {
-	handler, err := HandleLoginPage(testTemplateFS(), authTestLogger())
-	require.NoError(t, err)
+	ts := testTemplateSet(t)
+	handler := HandleLoginPage(ts, authTestLogger())
 
 	req := httptest.NewRequest(http.MethodGet, RouteLogin, nil)
 	rec := httptest.NewRecorder()
@@ -73,8 +105,8 @@ func TestHandleLoginPage_RendersForm(t *testing.T) {
 }
 
 func TestHandleLoginPage_NoErrorOnFirstRender(t *testing.T) {
-	handler, err := HandleLoginPage(testTemplateFS(), authTestLogger())
-	require.NoError(t, err)
+	ts := testTemplateSet(t)
+	handler := HandleLoginPage(ts, authTestLogger())
 
 	req := httptest.NewRequest(http.MethodGet, RouteLogin, nil)
 	rec := httptest.NewRecorder()
@@ -89,8 +121,8 @@ func TestHandleLoginPage_NoErrorOnFirstRender(t *testing.T) {
 
 func TestHandleLogin_CorrectSecret(t *testing.T) {
 	store := testAuthStore(t)
-	handler, err := HandleLogin(store, testAuthSecret, testRateLimiter(), testTemplateFS(), authTestLogger())
-	require.NoError(t, err)
+	ts := testTemplateSet(t)
+	handler := HandleLogin(store, testAuthSecret, testRateLimiter(), ts, authTestLogger())
 
 	req := httptest.NewRequest(http.MethodPost, RouteLogin, loginFormBody(testAuthSecret))
 	req.Header.Set(HeaderContentType, ContentTypeForm)
@@ -125,8 +157,8 @@ func TestHandleLogin_CorrectSecret(t *testing.T) {
 
 func TestHandleLogin_WrongSecret(t *testing.T) {
 	store := testAuthStore(t)
-	handler, err := HandleLogin(store, testAuthSecret, testRateLimiter(), testTemplateFS(), authTestLogger())
-	require.NoError(t, err)
+	ts := testTemplateSet(t)
+	handler := HandleLogin(store, testAuthSecret, testRateLimiter(), ts, authTestLogger())
 
 	req := httptest.NewRequest(http.MethodPost, RouteLogin, loginFormBody("wrong-secret-value"))
 	req.Header.Set(HeaderContentType, ContentTypeForm)
@@ -147,8 +179,8 @@ func TestHandleLogin_WrongSecret(t *testing.T) {
 
 func TestHandleLogin_EmptySecret(t *testing.T) {
 	store := testAuthStore(t)
-	handler, err := HandleLogin(store, testAuthSecret, testRateLimiter(), testTemplateFS(), authTestLogger())
-	require.NoError(t, err)
+	ts := testTemplateSet(t)
+	handler := HandleLogin(store, testAuthSecret, testRateLimiter(), ts, authTestLogger())
 
 	req := httptest.NewRequest(http.MethodPost, RouteLogin, loginFormBody(""))
 	req.Header.Set(HeaderContentType, ContentTypeForm)
@@ -162,9 +194,9 @@ func TestHandleLogin_EmptySecret(t *testing.T) {
 
 func TestHandleLogin_RateLimited_HTML(t *testing.T) {
 	store := testAuthStore(t)
+	ts := testTemplateSet(t)
 	limiter := NewRateLimiter(DefaultRateLimitLogin, RateLimitWindow)
-	handler, err := HandleLogin(store, testAuthSecret, limiter, testTemplateFS(), authTestLogger())
-	require.NoError(t, err)
+	handler := HandleLogin(store, testAuthSecret, limiter, ts, authTestLogger())
 
 	// Exhaust the rate limit.
 	for range DefaultRateLimitLogin {
@@ -188,9 +220,9 @@ func TestHandleLogin_RateLimited_HTML(t *testing.T) {
 
 func TestHandleLogin_RateLimited_JSON(t *testing.T) {
 	store := testAuthStore(t)
+	ts := testTemplateSet(t)
 	limiter := NewRateLimiter(DefaultRateLimitLogin, RateLimitWindow)
-	handler, err := HandleLogin(store, testAuthSecret, limiter, testTemplateFS(), authTestLogger())
-	require.NoError(t, err)
+	handler := HandleLogin(store, testAuthSecret, limiter, ts, authTestLogger())
 
 	// Exhaust the rate limit.
 	for range DefaultRateLimitLogin {
@@ -212,16 +244,16 @@ func TestHandleLogin_RateLimited_JSON(t *testing.T) {
 	assert.Equal(t, http.StatusTooManyRequests, rec.Code)
 
 	var errBody ErrorBody
-	err = json.NewDecoder(rec.Body).Decode(&errBody)
+	err := json.NewDecoder(rec.Body).Decode(&errBody)
 	require.NoError(t, err)
 	assert.Equal(t, ErrCodeTooManyReqs, errBody.Code)
 }
 
 func TestHandleLogin_RateLimitRecovers(t *testing.T) {
 	store := testAuthStore(t)
+	ts := testTemplateSet(t)
 	limiter := NewRateLimiter(DefaultRateLimitLogin, 50*time.Millisecond)
-	handler, err := HandleLogin(store, testAuthSecret, limiter, testTemplateFS(), authTestLogger())
-	require.NoError(t, err)
+	handler := HandleLogin(store, testAuthSecret, limiter, ts, authTestLogger())
 
 	// Exhaust rate limit.
 	for range DefaultRateLimitLogin {

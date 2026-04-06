@@ -1,0 +1,15 @@
+{{define "preview"}}
+<div class="preview-modal" id="preview-modal" role="dialog" aria-modal="true" aria-label="Image preview" hidden>
+  <div class="preview-backdrop"></div>
+  <div class="preview-content">
+    <h3 class="preview-title">Clipboard Image Preview</h3>
+    <div class="preview-image-container">
+      <img id="preview-image" class="preview-image" alt="Clipboard preview">
+    </div>
+    <div class="preview-actions">
+      <button type="button" class="btn btn-primary" id="preview-confirm">Upload</button>
+      <button type="button" class="btn btn-secondary" id="preview-cancel">Cancel</button>
+    </div>
+  </div>
+</div>
+{{end}}

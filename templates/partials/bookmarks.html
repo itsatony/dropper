@@ -1,0 +1,12 @@
+{{define "bookmarks"}}
+<div class="bookmarks" id="bookmarks">
+  <div class="bookmarks-header">
+    <h2 class="bookmarks-title">Bookmarks</h2>
+    <button type="button" class="btn btn-small btn-bookmark-add" id="bookmark-add"
+            title="Bookmark current directory" aria-label="Bookmark current directory">+</button>
+  </div>
+  <ul class="bookmarks-list" id="bookmarks-list" role="list">
+    <!-- Populated by JavaScript from localStorage -->
+  </ul>
+</div>
+{{end}}

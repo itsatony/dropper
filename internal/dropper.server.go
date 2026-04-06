@@ -48,6 +48,15 @@ func NewServer(cfg *Config, logger *slog.Logger, staticFS fs.FS, templateFS fs.F
 	sessionStore := NewSessionStore(ttl, logger)
 	rateLimiter := NewRateLimiter(cfg.Dropper.RateLimitLogin, RateLimitWindow)
 
+	// Create template set from embedded filesystem.
+	var ts *TemplateSet
+	if templateFS != nil {
+		ts, err = NewTemplateSet(templateFS)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", ErrMsgTemplateSet, err)
+		}
+	}
+
 	// Public routes (no auth required).
 	r.Get(RouteHealthz, HandleHealthz(cfg.Dropper.RootDir, logger))
 	r.Handle(RouteVersion, version.Handler())
@@ -64,23 +73,20 @@ func NewServer(cfg *Config, logger *slog.Logger, staticFS fs.FS, templateFS fs.F
 	}
 
 	// Auth routes (public).
-	if templateFS != nil {
-		loginPageHandler, err := HandleLoginPage(templateFS, logger)
-		if err != nil {
-			return nil, fmt.Errorf("%s: %w", ErrMsgTemplateParse, err)
-		}
-		loginHandler, err := HandleLogin(sessionStore, cfg.Dropper.Secret, rateLimiter, templateFS, logger)
-		if err != nil {
-			return nil, fmt.Errorf("%s: %w", ErrMsgTemplateParse, err)
-		}
-		r.Get(RouteLogin, loginPageHandler)
-		r.Post(RouteLogin, loginHandler)
+	if ts != nil {
+		r.Get(RouteLogin, HandleLoginPage(ts, logger))
+		r.Post(RouteLogin, HandleLogin(sessionStore, cfg.Dropper.Secret, rateLimiter, ts, logger))
 	}
 
 	// Protected routes (session required).
 	r.Group(func(r chi.Router) {
 		r.Use(SessionMiddleware(sessionStore, logger))
 		r.Post(RouteLogout, HandleLogout(sessionStore, logger))
+
+		if ts != nil {
+			r.Get(RouteRoot, HandleMainPage(ts, &cfg.Dropper, logger))
+			r.Get(RouteFiles, HandleListFiles(ts, &cfg.Dropper, logger))
+		}
 	})
 
 	addr := net.JoinHostPort("", strconv.Itoa(cfg.Dropper.ListenPort))

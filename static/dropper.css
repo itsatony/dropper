@@ -1,5 +1,4 @@
-/* dropper.css — minimal styles, light/dark mode */
-/* Full styling will be implemented in Cycle 5 */
+/* dropper.css — minimal styles, light/dark mode, responsive */
 
 *,
 *::before,
@@ -14,12 +13,36 @@
     Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
   --bg: #ffffff;
   --fg: #1a1a1a;
+  --bg-secondary: #f5f5f5;
+  --border: #ddd;
+  --accent: #2c3e50;
+  --accent-hover: #34495e;
+  --link: #2980b9;
+  --link-hover: #1a5276;
+  --error: #c0392b;
+  --success: #27ae60;
+  --info: #2980b9;
+  --muted: #777;
+  --radius: 4px;
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  --touch-min: 44px;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #1a1a1a;
     --fg: #e0e0e0;
+    --bg-secondary: #252525;
+    --border: #444;
+    --accent: #5dade2;
+    --accent-hover: #85c1e9;
+    --link: #5dade2;
+    --link-hover: #85c1e9;
+    --error: #e74c3c;
+    --success: #2ecc71;
+    --info: #5dade2;
+    --muted: #999;
+    --shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
   }
 }
 
@@ -28,4 +51,588 @@ body {
   background-color: var(--bg);
   color: var(--fg);
   line-height: 1.5;
+  min-height: 100vh;
+}
+
+/* --- Buttons --- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--touch-min);
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 0.875rem;
+  font-family: inherit;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.btn-primary:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.btn-secondary {
+  background: var(--bg-secondary);
+  color: var(--fg);
+}
+
+.btn-secondary:hover {
+  background: var(--border);
+}
+
+.btn-logout {
+  background: transparent;
+  color: var(--fg);
+  border: 1px solid var(--border);
+  min-height: 36px;
+  padding: 0.25rem 0.75rem;
+  font-size: 0.8rem;
+}
+
+.btn-logout:hover {
+  background: var(--bg-secondary);
+}
+
+.btn-small {
+  min-height: 32px;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.8rem;
+}
+
+/* --- Login Page --- */
+
+.login-page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+}
+
+.login-form {
+  max-width: 360px;
+  width: 100%;
+  padding: 2rem;
+}
+
+.login-title {
+  margin-bottom: 1.5rem;
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+
+.login-error {
+  color: var(--error);
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+}
+
+.login-label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.login-input {
+  width: 100%;
+  padding: 0.5rem;
+  margin-bottom: 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 1rem;
+  font-family: inherit;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.login-input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.login-button {
+  width: 100%;
+  padding: 0.5rem;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  font-size: 1rem;
+  font-family: inherit;
+  cursor: pointer;
+  min-height: var(--touch-min);
+}
+
+.login-button:hover {
+  background: var(--accent-hover);
+}
+
+/* --- App Header --- */
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary);
+}
+
+.app-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.app-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.logout-form {
+  margin: 0;
+}
+
+/* --- App Layout --- */
+
+.app-layout {
+  display: flex;
+  min-height: calc(100vh - 53px);
+}
+
+.sidebar {
+  width: 220px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  padding: 1rem;
+  background: var(--bg-secondary);
+}
+
+.main-content {
+  flex: 1;
+  padding: 1rem;
+  min-width: 0;
+}
+
+/* --- Breadcrumbs --- */
+
+.breadcrumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.5rem 0;
+  margin-bottom: 0.75rem;
+  font-size: 0.9rem;
+}
+
+.breadcrumb-link {
+  color: var(--link);
+  text-decoration: none;
+  padding: 0.125rem 0.25rem;
+  border-radius: var(--radius);
+}
+
+.breadcrumb-link:hover {
+  color: var(--link-hover);
+  background: var(--bg-secondary);
+}
+
+.breadcrumb-sep {
+  color: var(--muted);
+  user-select: none;
+}
+
+.breadcrumb-current {
+  font-weight: 600;
+  padding: 0.125rem 0.25rem;
+}
+
+/* --- File List --- */
+
+.filelist-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0;
+  margin-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.85rem;
+}
+
+.filelist-count {
+  color: var(--muted);
+}
+
+.sort-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.sort-label {
+  color: var(--muted);
+}
+
+.sort-btn {
+  color: var(--link);
+  text-decoration: none;
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--radius);
+  font-size: 0.85rem;
+}
+
+.sort-btn:hover {
+  background: var(--bg-secondary);
+}
+
+.sort-active {
+  font-weight: 600;
+}
+
+.filelist {
+  list-style: none;
+  padding: 0;
+}
+
+.filelist-item {
+  border-bottom: 1px solid var(--border);
+}
+
+.filelist-item:last-child {
+  border-bottom: none;
+}
+
+.filelist-link {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.25rem;
+  min-height: var(--touch-min);
+  text-decoration: none;
+  color: var(--fg);
+}
+
+a.filelist-link:hover {
+  background: var(--bg-secondary);
+  border-radius: var(--radius);
+}
+
+.filelist-dir-link {
+  color: var(--link);
+}
+
+.filelist-icon {
+  flex-shrink: 0;
+  width: 1.5em;
+  text-align: center;
+}
+
+.filelist-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.filelist-size,
+.filelist-date {
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+  text-align: right;
+}
+
+.filelist-size {
+  min-width: 5em;
+}
+
+.filelist-date {
+  min-width: 10em;
+}
+
+.filelist-empty {
+  padding: 2rem;
+  text-align: center;
+  color: var(--muted);
+  font-style: italic;
+}
+
+/* --- Drop Zone --- */
+
+.dropzone {
+  margin-top: 1.5rem;
+  border: 2px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 2rem;
+  text-align: center;
+  transition: border-color 0.2s, background-color 0.2s;
+}
+
+.dropzone.drag-over {
+  border-color: var(--accent);
+  background: var(--bg-secondary);
+}
+
+.dropzone-text {
+  color: var(--muted);
+  margin-bottom: 1rem;
+}
+
+.dropzone-fallback {
+  cursor: pointer;
+}
+
+.dropzone-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+}
+
+/* --- Bookmarks --- */
+
+.bookmarks-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.bookmarks-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.btn-bookmark-add {
+  font-size: 1rem;
+  font-weight: 700;
+  min-height: 32px;
+  min-width: 32px;
+  padding: 0;
+}
+
+.bookmarks-list {
+  list-style: none;
+  padding: 0;
+}
+
+.bookmark-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.25rem;
+  padding: 0.25rem 0;
+}
+
+.bookmark-link {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--link);
+  text-decoration: none;
+  font-size: 0.85rem;
+  padding: 0.25rem;
+  border-radius: var(--radius);
+}
+
+.bookmark-link:hover {
+  background: var(--bg-secondary);
+}
+
+.bookmark-remove {
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.8rem;
+  padding: 0.25rem;
+  line-height: 1;
+}
+
+.bookmark-remove:hover {
+  color: var(--error);
+}
+
+/* --- Toast Notifications --- */
+
+#toast-container {
+  position: fixed;
+  bottom: 1rem;
+  right: 1rem;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  pointer-events: none;
+}
+
+.toast {
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  font-size: 0.9rem;
+  pointer-events: auto;
+  animation: toast-in 0.3s ease-out;
+  max-width: 360px;
+}
+
+.toast-success {
+  background: var(--success);
+  color: #fff;
+}
+
+.toast-error {
+  background: var(--error);
+  color: #fff;
+}
+
+.toast-info {
+  background: var(--info);
+  color: #fff;
+}
+
+.toast-fade {
+  animation: toast-out 0.3s ease-in forwards;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(1rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes toast-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(1rem);
+  }
+}
+
+/* --- Preview Modal --- */
+
+.preview-modal[hidden] {
+  display: none;
+}
+
+.preview-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.preview-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.preview-content {
+  position: relative;
+  background: var(--bg);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+  max-width: 500px;
+  width: 90%;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.preview-title {
+  font-size: 1rem;
+  margin-bottom: 1rem;
+}
+
+.preview-image-container {
+  margin-bottom: 1rem;
+  text-align: center;
+}
+
+.preview-image {
+  max-width: 100%;
+  max-height: 300px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.preview-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+/* --- Responsive --- */
+
+@media (max-width: 768px) {
+  .app-layout {
+    flex-direction: column;
+  }
+
+  .sidebar {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    padding: 0.75rem;
+  }
+
+  .bookmarks-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .bookmark-item {
+    padding: 0;
+  }
+
+  .filelist-date {
+    display: none;
+  }
+
+  .filelist-size {
+    min-width: 4em;
+  }
+
+  .sort-controls {
+    gap: 0.25rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .filelist-controls {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+
+  .preview-content {
+    width: 95%;
+    padding: 1rem;
+  }
 }

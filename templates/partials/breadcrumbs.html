@@ -1,0 +1,16 @@
+{{define "breadcrumbs"}}
+<nav class="breadcrumbs" id="breadcrumbs" aria-label="Directory navigation">
+  {{range $i, $seg := .Breadcrumbs}}
+  {{if $i}}<span class="breadcrumb-sep" aria-hidden="true">/</span>{{end}}
+  {{if eq $i (sub (len $.Breadcrumbs) 1)}}
+  <span class="breadcrumb-current" aria-current="page">{{$seg.Label}}</span>
+  {{else}}
+  <a href="/?path={{$seg.Path}}"
+     hx-get="/files?path={{$seg.Path}}"
+     hx-target="#file-browser"
+     hx-push-url="/?path={{$seg.Path}}"
+     class="breadcrumb-link">{{$seg.Label}}</a>
+  {{end}}
+  {{end}}
+</nav>
+{{end}}
