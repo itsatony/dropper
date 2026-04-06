@@ -233,12 +233,14 @@ dropper:
   root_dir: "/tmp"
 `
 	path := writeTestConfig(t, yaml)
-	t.Setenv(EnvLoggingNoLogPaths, "/healthz /version")
+	// Viper treats single env var strings as a one-element slice.
+	// For multi-value lists, use YAML config. Env var binding still works for the key.
+	t.Setenv(EnvLoggingNoLogPaths, "/healthz")
 
 	cfg, err := LoadConfig(path)
 	require.NoError(t, err)
-	// Viper parses space-separated strings into a slice for list types.
-	assert.NotEmpty(t, cfg.Dropper.Logging.NoLogPaths)
+	require.Len(t, cfg.Dropper.Logging.NoLogPaths, 1)
+	assert.Equal(t, "/healthz", cfg.Dropper.Logging.NoLogPaths[0])
 }
 
 func TestSessionTTLDuration(t *testing.T) {

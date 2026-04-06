@@ -1280,15 +1280,45 @@ func TestServer_ConcurrentUploads(t *testing.T) {
 
 	results := make([]*UploadResponse, goroutines)
 	statuses := make([]int, goroutines)
+	uploadErrs := make([]error, goroutines)
 
 	for i := range goroutines {
 		go func(n int) {
 			defer wg.Done()
 			content := []byte(fmt.Sprintf("concurrent upload %d", n))
 			filename := fmt.Sprintf("concurrent_%d.txt", n)
-			resp := serverMultipartUpload(t, ts.URL, cookie, ".", map[string][]byte{
-				filename: content,
-			})
+
+			// Build multipart request inline — avoid require/fatal in goroutine.
+			var buf bytes.Buffer
+			writer := multipart.NewWriter(&buf)
+			part, err := writer.CreateFormFile(FormFieldFile, filename)
+			if err != nil {
+				uploadErrs[n] = err
+				return
+			}
+			if _, err := part.Write(content); err != nil {
+				uploadErrs[n] = err
+				return
+			}
+			if err := writer.Close(); err != nil {
+				uploadErrs[n] = err
+				return
+			}
+
+			reqURL := ts.URL + RouteFilesUpload + "?" + QueryParamPath + "=" + url.QueryEscape(".")
+			req, err := http.NewRequest(http.MethodPost, reqURL, &buf)
+			if err != nil {
+				uploadErrs[n] = err
+				return
+			}
+			req.Header.Set(HeaderContentType, writer.FormDataContentType())
+			req.AddCookie(cookie)
+
+			resp, err := noRedirectClient().Do(req)
+			if err != nil {
+				uploadErrs[n] = err
+				return
+			}
 			defer resp.Body.Close()
 			statuses[n] = resp.StatusCode
 			var ur UploadResponse
@@ -1300,13 +1330,17 @@ func TestServer_ConcurrentUploads(t *testing.T) {
 
 	wg.Wait()
 
-	// All uploads must succeed.
+	// All uploads must succeed — assertions in main goroutine only.
+	for i, err := range uploadErrs {
+		assert.NoError(t, err, "goroutine %d should not error during upload setup", i)
+	}
 	for i, status := range statuses {
 		assert.Equal(t, http.StatusOK, status, "goroutine %d should get 200", i)
 	}
 	for i, r := range results {
-		require.NotNil(t, r, "goroutine %d should have a response", i)
-		assert.Equal(t, 1, r.Uploaded, "goroutine %d should upload 1 file", i)
+		if assert.NotNil(t, r, "goroutine %d should have a response", i) {
+			assert.Equal(t, 1, r.Uploaded, "goroutine %d should upload 1 file", i)
+		}
 	}
 
 	// Verify audit log has all upload entries.

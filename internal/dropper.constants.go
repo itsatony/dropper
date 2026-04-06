@@ -241,6 +241,8 @@ const (
 // --- Path limits ---
 
 const (
+	// MaxPathLength is the maximum byte length for a client-supplied path.
+	// Matches Linux PATH_MAX. Byte-based (not rune count) to align with OS limits.
 	MaxPathLength = 4096
 )
 

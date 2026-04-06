@@ -104,7 +104,10 @@ func LoadConfig(path string) (*Config, error) {
 // validateRootDir checks that the configured root directory exists and is a directory.
 func validateRootDir(rootDir string) error {
 	info, err := os.Stat(rootDir)
-	if err != nil || !info.IsDir() {
+	if err != nil {
+		return fmt.Errorf("%s: %s", ErrMsgRootDirNotExist, rootDir)
+	}
+	if !info.IsDir() {
 		return fmt.Errorf("%s: %s", ErrMsgRootDirNotExist, rootDir)
 	}
 	return nil
@@ -127,7 +130,10 @@ func validateAuditLogPath(auditPath string) error {
 	}
 	parentDir := filepath.Dir(auditPath)
 	info, err := os.Stat(parentDir)
-	if err != nil || !info.IsDir() {
+	if err != nil {
+		return fmt.Errorf("%s: %s", ErrMsgAuditLogParentNoDir, parentDir)
+	}
+	if !info.IsDir() {
 		return fmt.Errorf("%s: %s", ErrMsgAuditLogParentNoDir, parentDir)
 	}
 	return nil
@@ -136,6 +142,7 @@ func validateAuditLogPath(auditPath string) error {
 // bindEnvVars explicitly binds environment variable names to nested viper keys.
 // Required because viper's AutomaticEnv does not reliably map prefixed env vars
 // to nested YAML keys.
+// BindEnv only errors with zero args; two-arg calls are infallible.
 func bindEnvVars(v *viper.Viper) {
 	_ = v.BindEnv(ConfigKeyListenPort, EnvListenPort)
 	_ = v.BindEnv(ConfigKeySecret, EnvSecret)
