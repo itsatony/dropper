@@ -86,6 +86,8 @@ Upload safety: temp dir write → rename into place; filename sanitized to `[a-z
 
 Auth: `crypto/subtle.ConstantTimeCompare` for secret; `crypto/rand` for session tokens; rate-limited login (5/min/IP).
 
+CSRF: Origin/Referer header validation middleware on all state-changing requests (defense-in-depth on top of `SameSite=Strict` cookies). Lenient for missing headers to support CLI tools.
+
 ## Design Decisions
 
 - **No delete** — intentional one-way drop zone with read access

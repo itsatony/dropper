@@ -75,7 +75,7 @@ func CSRFMiddleware(logger *slog.Logger) func(http.Handler) http.Handler {
 
 // isSafeMethod returns true for HTTP methods that do not change server state.
 func isSafeMethod(method string) bool {
-	return method == MethodGet || method == MethodHead || method == MethodOptions
+	return method == http.MethodGet || method == http.MethodHead || method == http.MethodOptions
 }
 
 // extractHostFromURL parses a URL string and returns the host:port component.

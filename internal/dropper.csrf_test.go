@@ -1,11 +1,13 @@
 package dropper
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // csrfTestHandler is a simple handler that returns 200 OK when reached.
@@ -17,7 +19,7 @@ func TestCSRFMiddleware_SafeMethodsBypass(t *testing.T) {
 	logger := testLogger()
 	middleware := CSRFMiddleware(logger)(csrfTestHandler)
 
-	methods := []string{MethodGet, MethodHead, MethodOptions}
+	methods := []string{http.MethodGet, http.MethodHead, http.MethodOptions}
 	for _, method := range methods {
 		t.Run(method, func(t *testing.T) {
 			req := httptest.NewRequest(method, "/", nil)
@@ -82,6 +84,12 @@ func TestCSRFMiddleware_PostWithMismatchedOrigin(t *testing.T) {
 
 	middleware.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusForbidden, rec.Code)
+
+	// Verify the JSON error body matches the CSRF error contract.
+	var body ErrorBody
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&body))
+	assert.Equal(t, ErrCodeCSRF, body.Code)
+	assert.Equal(t, ErrMsgCSRFOriginMismatch, body.Message)
 }
 
 func TestCSRFMiddleware_PostWithMismatchedReferer(t *testing.T) {
@@ -96,6 +104,11 @@ func TestCSRFMiddleware_PostWithMismatchedReferer(t *testing.T) {
 
 	middleware.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusForbidden, rec.Code)
+
+	var body ErrorBody
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&body))
+	assert.Equal(t, ErrCodeCSRF, body.Code)
+	assert.Equal(t, ErrMsgCSRFOriginMismatch, body.Message)
 }
 
 func TestCSRFMiddleware_PostWithNoOriginNoReferer(t *testing.T) {
@@ -254,9 +267,9 @@ func TestIsSafeMethod(t *testing.T) {
 		method string
 		safe   bool
 	}{
-		{MethodGet, true},
-		{MethodHead, true},
-		{MethodOptions, true},
+		{http.MethodGet, true},
+		{http.MethodHead, true},
+		{http.MethodOptions, true},
 		{http.MethodPost, false},
 		{http.MethodPut, false},
 		{http.MethodDelete, false},

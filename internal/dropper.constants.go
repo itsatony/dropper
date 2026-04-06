@@ -545,14 +545,6 @@ const (
 	LogFieldExpectedHost = "expected_host"
 )
 
-// --- CSRF safe HTTP methods ---
-
-const (
-	MethodGet     = "GET"
-	MethodHead    = "HEAD"
-	MethodOptions = "OPTIONS"
-)
-
 // --- File browsing log messages ---
 
 const (
