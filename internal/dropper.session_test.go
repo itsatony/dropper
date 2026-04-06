@@ -109,11 +109,9 @@ func TestSessionStore_CleanupExpired(t *testing.T) {
 	// Create 3 sessions with a very short TTL.
 	shortStore := testSessionStore(t, 50*time.Millisecond)
 
-	var shortTokens []string
 	for range 3 {
-		token, err := shortStore.Create()
+		_, err := shortStore.Create()
 		require.NoError(t, err)
-		shortTokens = append(shortTokens, token)
 	}
 
 	// Create 2 sessions with a long TTL in the same short store won't work cleanly —
