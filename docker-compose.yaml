@@ -1,0 +1,29 @@
+services:
+  dropper:
+    image: vaudience/dropper:latest
+    build:
+      context: .
+      args:
+        GIT_COMMIT: ${GIT_COMMIT:-unknown}
+        GIT_TAG: ${GIT_TAG:-unknown}
+        BUILD_TIME: ${BUILD_TIME:-unknown}
+    container_name: dropper
+    ports:
+      - "${DROPPER_PORT:-8080}:8080"
+    volumes:
+      - ./configs/dropper.yaml:/etc/dropper/dropper.yaml:ro
+      - ${DROPPER_DATA_DIR:-./data}:/data
+      - dropper-audit:/var/log
+    environment:
+      - DROPPER_SECRET=${DROPPER_SECRET:-change-me-in-production}
+    command: ["--config", "/etc/dropper/dropper.yaml"]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped
+
+volumes:
+  dropper-audit:

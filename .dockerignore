@@ -1,0 +1,44 @@
+# Build artifacts
+bin/
+coverage.*
+*.coverprofile
+*.out
+*.test
+profile.cov
+
+# Runtime data
+data/
+*.log
+
+# Git
+.git/
+.gitignore
+
+# IDE / Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Claude Code
+CLAUDE.md
+.claude/
+
+# Project planning (internal)
+project_plan/
+
+# Environment / secrets
+.env
+configs/dropper.yaml
+configs/dropper.local.yaml
+!configs/dropper.example.yaml
+
+# Docker (avoid recursive context)
+docker-compose.yaml
+
+# Documentation (not needed in image)
+README.md
+CHANGELOG.md
+ADRs.md
+LICENSE

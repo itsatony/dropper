@@ -2,4 +2,4 @@ manifest_version: "1.0"
 
 project:
   name: "dropper"
-  version: "0.7.0"
+  version: "0.8.0"
