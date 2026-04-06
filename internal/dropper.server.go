@@ -169,6 +169,12 @@ func (sr *statusRecorder) WriteHeader(code int) {
 	sr.ResponseWriter.WriteHeader(code)
 }
 
+// Unwrap returns the underlying ResponseWriter, supporting Go 1.20+
+// http.ResponseController and interface assertions (Flusher, Hijacker).
+func (sr *statusRecorder) Unwrap() http.ResponseWriter {
+	return sr.ResponseWriter
+}
+
 // requestLoggingMiddleware logs HTTP requests with method, path, status, and duration.
 // Requests to paths in noLogPaths are silently skipped.
 func requestLoggingMiddleware(noLogPaths []string, logger *slog.Logger) func(http.Handler) http.Handler {

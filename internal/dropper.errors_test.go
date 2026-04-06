@@ -33,6 +33,7 @@ func TestDropperError_Is_SentinelMatch(t *testing.T) {
 		sentinel error
 		want     bool
 	}{
+		{"path too long matches", NewPathTooLongError(), ErrPathTooLong, true},
 		{"path traversal matches", NewPathTraversalError(), ErrPathTraversal, true},
 		{"readonly matches", NewReadonlyError(), ErrReadonlyMode, true},
 		{"ext not allowed matches", NewExtNotAllowedError(), ErrExtNotAllowed, true},
@@ -114,6 +115,7 @@ func TestMapDropperError_AllSentinels(t *testing.T) {
 		wantCode   string
 		wantMsg    string
 	}{
+		{"path too long", NewPathTooLongError(), http.StatusBadRequest, ErrCodePathTooLong, ErrMsgPathTooLong},
 		{"path traversal", NewPathTraversalError(), http.StatusForbidden, ErrCodeForbidden, ErrMsgPathTraversal},
 		{"path resolution", NewPathResolutionError(nil), http.StatusInternalServerError, ErrCodeInternal, ErrMsgPathResolution},
 		{"readonly", NewReadonlyError(), http.StatusForbidden, ErrCodeReadonly, ErrMsgReadonlyMode},
