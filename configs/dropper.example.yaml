@@ -1,0 +1,31 @@
+# dropper.yaml — example configuration
+# Copy to configs/dropper.yaml and adjust values for your deployment.
+# All values can be overridden via environment variables with DROPPER_ prefix.
+
+dropper:
+  # --- Server ---
+  listen_port: 8080                      # DROPPER_LISTEN_PORT
+
+  # --- Auth ---
+  secret: "change-me-in-production"      # DROPPER_SECRET — pre-shared secret for login
+  session_ttl: "24h"                     # DROPPER_SESSION_TTL — session duration
+  rate_limit_login: 5                    # DROPPER_RATE_LIMIT_LOGIN — max login attempts per minute per IP
+
+  # --- Filesystem ---
+  root_dir: "./data"                     # DROPPER_ROOT_DIR — root directory to serve (mount point)
+  readonly: false                        # DROPPER_READONLY — disable uploads + mkdir when true
+  max_upload_bytes: 104857600            # DROPPER_MAX_UPLOAD_BYTES — 100MB default
+  allowed_extensions: []                 # DROPPER_ALLOWED_EXTENSIONS — empty = allow all; e.g. [".png", ".jpg", ".pdf"]
+
+  # --- Audit ---
+  audit_log_path: "dropper_audit.log"    # DROPPER_AUDIT_LOG_PATH
+
+  # --- Logging ---
+  logging:
+    level: "info"                        # DROPPER_LOGGING_LEVEL — debug, info, warn, error
+    format: "json"                       # DROPPER_LOGGING_FORMAT — json or console
+    output: "stdout"                     # DROPPER_LOGGING_OUTPUT — stdout or stderr
+    no_log_paths:                        # paths excluded from request logging
+      - "/healthz"
+      - "/version"
+      - "/metrics"
