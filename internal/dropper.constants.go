@@ -213,19 +213,19 @@ const (
 // --- Filesystem error messages ---
 
 const (
-	ErrMsgPathTraversal  = "path traversal denied"
-	ErrMsgPathResolution = "failed to resolve path"
+	ErrMsgPathTraversal   = "path traversal denied"
+	ErrMsgPathResolution  = "failed to resolve path"
 	ErrMsgInvalidFilename = "invalid filename"
-	ErrMsgExtNotAllowed  = "file extension not allowed"
-	ErrMsgReadonlyMode   = "operation denied in readonly mode"
-	ErrMsgListDir        = "failed to list directory"
-	ErrMsgCreateDir      = "failed to create directory"
-	ErrMsgWriteFile      = "failed to write file"
-	ErrMsgTempFile       = "failed to create temp file"
-	ErrMsgRenameFile     = "failed to rename file into place"
-	ErrMsgNotDirectory   = "path is not a directory"
-	ErrMsgNotFile        = "path is not a file"
-	ErrMsgFileTooLarge   = "file exceeds maximum upload size"
+	ErrMsgExtNotAllowed   = "file extension not allowed"
+	ErrMsgReadonlyMode    = "operation denied in readonly mode"
+	ErrMsgListDir         = "failed to list directory"
+	ErrMsgCreateDir       = "failed to create directory"
+	ErrMsgWriteFile       = "failed to write file"
+	ErrMsgTempFile        = "failed to create temp file"
+	ErrMsgRenameFile      = "failed to rename file into place"
+	ErrMsgNotDirectory    = "path is not a directory"
+	ErrMsgNotFile         = "path is not a file"
+	ErrMsgFileTooLarge    = "file exceeds maximum upload size"
 )
 
 // --- Filesystem error codes ---
@@ -326,4 +326,3 @@ const (
 	LogFieldSize         = "size"
 	LogFieldExtension    = "extension"
 )
-
