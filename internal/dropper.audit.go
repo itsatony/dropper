@@ -54,10 +54,10 @@ func NewAuditLogger(path string, logger *slog.Logger) (*AuditLogger, error) {
 	}, nil
 }
 
-// Log writes an audit entry as a single JSON line. If the logger is disabled,
-// this is a no-op. The timestamp is auto-set to the current time in RFC3339Nano
-// format if not already populated. Errors are logged via slog and never returned
-// — audit failures must not break request handling.
+// Log writes an audit entry as a single JSON line. If the logger is disabled or
+// closed, this is a no-op. The timestamp is auto-set to the current time in
+// RFC3339Nano format if not already populated. Errors are logged via slog and
+// never returned — audit failures must not break request handling.
 func (a *AuditLogger) Log(entry AuditEntry) {
 	if !a.enabled {
 		return
@@ -76,6 +76,10 @@ func (a *AuditLogger) Log(entry AuditEntry) {
 	data = append(data, '\n')
 
 	a.mu.Lock()
+	if a.file == nil {
+		a.mu.Unlock()
+		return
+	}
 	_, err = a.file.Write(data)
 	a.mu.Unlock()
 
@@ -98,46 +102,60 @@ func NewAuditEntry(r *http.Request, action, path string) AuditEntry {
 // Reopen closes the current audit log file and opens a new handle at the same
 // path. This supports log rotation: an external tool renames the file, then
 // signals the process to call Reopen, which creates a fresh file.
+// File I/O is performed outside the mutex to satisfy the no-mutex-across-I/O rule.
 func (a *AuditLogger) Reopen() error {
+	a.mu.Lock()
 	if !a.enabled {
+		a.mu.Unlock()
 		return nil
 	}
+	oldFile := a.file
+	a.file = nil // Log() will see nil and no-op during rotation
+	a.mu.Unlock()
 
-	a.mu.Lock()
-	defer a.mu.Unlock()
-
-	if a.file != nil {
-		if err := a.file.Close(); err != nil {
+	// Close old file outside lock.
+	if oldFile != nil {
+		if err := oldFile.Close(); err != nil {
 			return fmt.Errorf("%s: %w", ErrMsgAuditClose, err)
 		}
 	}
 
+	// Open new file outside lock.
 	f, err := os.OpenFile(a.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, FilePermissions)
 	if err != nil {
+		// Disable logger — cannot write without a valid file handle.
+		a.mu.Lock()
+		a.enabled = false
+		a.mu.Unlock()
 		return fmt.Errorf("%s: %w", ErrMsgAuditOpen, err)
 	}
 
+	// Swap in new file under lock.
+	a.mu.Lock()
 	a.file = f
+	a.mu.Unlock()
+
 	a.logger.Info(LogMsgAuditReopened, LogFieldAuditPath, a.path)
 	return nil
 }
 
 // Close closes the audit log file. It is safe to call on a disabled logger or
 // after a previous Close call. After Close returns, all subsequent Log calls
-// are no-ops, preventing nil-pointer dereferences on the closed file handle.
+// are no-ops. File I/O and logging are performed outside the mutex.
 func (a *AuditLogger) Close() error {
+	a.mu.Lock()
 	if !a.enabled || a.file == nil {
+		a.mu.Unlock()
 		return nil
 	}
-
-	a.mu.Lock()
-	defer a.mu.Unlock()
-
 	a.enabled = false
-	err := a.file.Close()
+	f := a.file
 	a.file = nil
-	a.logger.Info(LogMsgAuditClosed)
+	a.mu.Unlock()
 
+	// Close file and log outside the lock.
+	a.logger.Info(LogMsgAuditClosed)
+	err := f.Close()
 	if err != nil {
 		return fmt.Errorf("%s: %w", ErrMsgAuditClose, err)
 	}

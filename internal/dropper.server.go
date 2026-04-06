@@ -37,7 +37,7 @@ func NewServer(cfg *Config, logger *slog.Logger, staticFS fs.FS, templateFS fs.F
 	// Create audit logger.
 	auditLogger, err := NewAuditLogger(cfg.Dropper.AuditLogPath, logger)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", ErrMsgAuditOpen, err)
+		return nil, fmt.Errorf("%s: %w", ErrMsgAuditInit, err)
 	}
 
 	// Create session store and rate limiter.

@@ -449,6 +449,7 @@ const (
 // --- Audit error messages ---
 
 const (
+	ErrMsgAuditInit  = "failed to initialize audit logger"
 	ErrMsgAuditOpen  = "failed to open audit log file"
 	ErrMsgAuditClose = "failed to close audit log file"
 )

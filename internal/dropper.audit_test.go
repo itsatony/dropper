@@ -401,6 +401,27 @@ func TestAuditLogger_Reopen_AfterDelete(t *testing.T) {
 	assert.Equal(t, "/post-rotate.txt", entries[0].Path)
 }
 
+func TestAuditLogger_Reopen_FailurePath(t *testing.T) {
+	al, _ := testAuditLogger(t)
+
+	// Mutate path to an invalid directory to force OpenFile failure on Reopen.
+	al.path = "/nonexistent/dir/audit.log"
+
+	err := al.Reopen()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), ErrMsgAuditOpen)
+
+	// Logger should be disabled after failed reopen — Log must not panic.
+	assert.NotPanics(t, func() {
+		al.Log(AuditEntry{
+			ClientIP: "10.0.0.1",
+			Action:   AuditActionUpload,
+			Path:     "/should-not-write.txt",
+			Success:  true,
+		})
+	})
+}
+
 // --- NewAuditEntry tests ---
 
 func TestNewAuditEntry_SetsFields(t *testing.T) {
