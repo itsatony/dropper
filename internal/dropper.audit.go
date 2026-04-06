@@ -106,8 +106,10 @@ func (a *AuditLogger) Reopen() error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	if err := a.file.Close(); err != nil {
-		return fmt.Errorf("%s: %w", ErrMsgAuditClose, err)
+	if a.file != nil {
+		if err := a.file.Close(); err != nil {
+			return fmt.Errorf("%s: %w", ErrMsgAuditClose, err)
+		}
 	}
 
 	f, err := os.OpenFile(a.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, FilePermissions)
@@ -120,7 +122,9 @@ func (a *AuditLogger) Reopen() error {
 	return nil
 }
 
-// Close closes the audit log file. It is safe to call on a disabled logger.
+// Close closes the audit log file. It is safe to call on a disabled logger or
+// after a previous Close call. After Close returns, all subsequent Log calls
+// are no-ops, preventing nil-pointer dereferences on the closed file handle.
 func (a *AuditLogger) Close() error {
 	if !a.enabled || a.file == nil {
 		return nil
@@ -129,6 +133,7 @@ func (a *AuditLogger) Close() error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
+	a.enabled = false
 	err := a.file.Close()
 	a.file = nil
 	a.logger.Info(LogMsgAuditClosed)

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -296,6 +297,36 @@ func TestAuditLogger_Close(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestAuditLogger_Log_AfterClose(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.log")
+	al, err := NewAuditLogger(path, auditTestLogger())
+	require.NoError(t, err)
+
+	al.Log(AuditEntry{
+		ClientIP: "10.0.0.1",
+		Action:   AuditActionUpload,
+		Path:     "/before-close.txt",
+		Success:  true,
+	})
+
+	require.NoError(t, al.Close())
+
+	// Log after Close must not panic — should be a silent no-op.
+	assert.NotPanics(t, func() {
+		al.Log(AuditEntry{
+			ClientIP: "10.0.0.2",
+			Action:   AuditActionDownload,
+			Path:     "/after-close.txt",
+			Success:  true,
+		})
+	})
+
+	// Only the pre-close entry should be in the file.
+	entries := readAuditLines(t, path)
+	assert.Len(t, entries, 1)
+	assert.Equal(t, "/before-close.txt", entries[0].Path)
+}
+
 func TestAuditLogger_Close_Idempotent(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "audit.log")
 	al, err := NewAuditLogger(path, auditTestLogger())
@@ -373,7 +404,7 @@ func TestAuditLogger_Reopen_AfterDelete(t *testing.T) {
 // --- NewAuditEntry tests ---
 
 func TestNewAuditEntry_SetsFields(t *testing.T) {
-	req := httptest.NewRequest("GET", "/files/test.txt", nil)
+	req := httptest.NewRequest(http.MethodGet, "/files/test.txt", nil)
 	req.RemoteAddr = "10.0.0.5:54321"
 
 	entry := NewAuditEntry(req, AuditActionDownload, "/files/test.txt")
@@ -400,7 +431,7 @@ func TestNewAuditEntry_ClientIPWithPort(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest("GET", "/", nil)
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
 			req.RemoteAddr = tt.remoteAddr
 			entry := NewAuditEntry(req, AuditActionUpload, "/test")
 			assert.Equal(t, tt.expected, entry.ClientIP)
