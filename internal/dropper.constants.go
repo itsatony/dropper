@@ -210,6 +210,120 @@ const (
 	ErrCodeInternal = "internal_error"
 )
 
-// --- Context key type for type safety ---
+// --- Filesystem error messages ---
 
-type ctxKey string
+const (
+	ErrMsgPathTraversal  = "path traversal denied"
+	ErrMsgPathResolution = "failed to resolve path"
+	ErrMsgInvalidFilename = "invalid filename"
+	ErrMsgExtNotAllowed  = "file extension not allowed"
+	ErrMsgReadonlyMode   = "operation denied in readonly mode"
+	ErrMsgListDir        = "failed to list directory"
+	ErrMsgCreateDir      = "failed to create directory"
+	ErrMsgWriteFile      = "failed to write file"
+	ErrMsgTempFile       = "failed to create temp file"
+	ErrMsgRenameFile     = "failed to rename file into place"
+	ErrMsgNotDirectory   = "path is not a directory"
+	ErrMsgNotFile        = "path is not a file"
+	ErrMsgFileTooLarge   = "file exceeds maximum upload size"
+)
+
+// --- Filesystem error codes ---
+
+const (
+	ErrCodeForbidden     = "forbidden"
+	ErrCodeBadRequest    = "bad_request"
+	ErrCodeNotFound      = "not_found"
+	ErrCodeReadonly      = "readonly"
+	ErrCodeExtNotAllowed = "extension_not_allowed"
+	ErrCodeFileTooLarge  = "file_too_large"
+)
+
+// --- Sort fields ---
+
+const (
+	SortByName       = "name"
+	SortByDate       = "date"
+	SortBySize       = "size"
+	SortOrderAsc     = "asc"
+	SortOrderDesc    = "desc"
+	DefaultSortField = SortByName
+	DefaultSortOrder = SortOrderAsc
+)
+
+// --- Filename sanitization ---
+
+const (
+	FilenameSanitizePattern = `[^a-zA-Z0-9_.\-]`
+	FilenameSanitizeReplace = '_'
+	FilenameMaxLength       = 255
+	FilenameFallback        = "_"
+	ClipboardFilenamePrefix = "clipboard"
+	ClipboardFilenameExt    = ".png"
+)
+
+// --- Timestamp format for collision resolution ---
+
+const (
+	CollisionTimestampFormat = "20060102-150405"
+	CollisionSeparator       = "_"
+)
+
+// --- File permissions ---
+
+const (
+	DirPermissions  = 0755
+	FilePermissions = 0644
+)
+
+// --- Temp file pattern ---
+
+const (
+	TempFilePattern = "dropper-upload-*"
+)
+
+// --- File size formatting ---
+
+const (
+	SizeUnitB  = "B"
+	SizeUnitKB = "KB"
+	SizeUnitMB = "MB"
+	SizeUnitGB = "GB"
+	SizeUnitTB = "TB"
+)
+
+const (
+	SizeKB int64 = 1024
+	SizeMB int64 = 1024 * 1024
+	SizeGB int64 = 1024 * 1024 * 1024
+	SizeTB int64 = 1024 * 1024 * 1024 * 1024
+)
+
+// --- File size format strings ---
+
+const (
+	SizeFormatBytes   = "%d %s"
+	SizeFormatDecimal = "%.1f %s"
+)
+
+// --- Log messages (filesystem) ---
+
+const (
+	LogMsgPathDenied        = "path traversal attempt denied"
+	LogMsgFileWritten       = "file written"
+	LogMsgDirCreated        = "directory created"
+	LogMsgCollisionResolved = "filename collision resolved"
+	LogMsgExtRejected       = "extension rejected"
+)
+
+// --- Log field names (filesystem) ---
+
+const (
+	LogFieldPath         = "path"
+	LogFieldFilename     = "filename"
+	LogFieldOriginalName = "original_name"
+	LogFieldResolvedName = "resolved_name"
+	LogFieldSize         = "size"
+	LogFieldExtension    = "extension"
+)
+
