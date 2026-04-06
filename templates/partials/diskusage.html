@@ -1,10 +1,10 @@
 {{define "diskusage"}}
 <footer class="disk-usage-footer" id="disk-usage"
-        hx-get="/healthz" hx-trigger="load" hx-target="#disk-usage" hx-swap="innerHTML">
+        hx-get="{{routeHealthz}}" hx-trigger="load" hx-target="#disk-usage" hx-swap="innerHTML">
   {{if .DiskUsage}}
   <div class="disk-usage-info">
     <span class="disk-usage-text">Disk: {{formatDiskSize .DiskUsage.UsedBytes}} / {{formatDiskSize .DiskUsage.TotalBytes}} ({{diskPercent .DiskUsage.UsedPercent}})</span>
-    <div class="disk-bar" role="progressbar" aria-valuenow="{{printf "%.0f" .DiskUsage.UsedPercent}}" aria-valuemin="0" aria-valuemax="100">
+    <div class="disk-bar" role="progressbar" aria-label="Disk usage" aria-valuenow="{{printf "%.0f" .DiskUsage.UsedPercent}}" aria-valuemin="0" aria-valuemax="100">
       <div class="disk-bar-fill" style="width: {{printf "%.1f" .DiskUsage.UsedPercent}}%"></div>
     </div>
   </div>

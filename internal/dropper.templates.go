@@ -71,6 +71,7 @@ func templateFuncMap() template.FuncMap {
 		"lower":          strings.ToLower,
 		"sub":            func(a, b int) int { return a - b },
 		"urlquery":       url.QueryEscape,
+		"routeHealthz":   func() string { return RouteHealthz },
 	}
 }
 
