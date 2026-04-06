@@ -331,3 +331,87 @@ const (
 	LogFieldSize         = "size"
 	LogFieldExtension    = "extension"
 )
+
+// --- Session / Auth ---
+
+const (
+	SessionCookieName      = "dropper_session"
+	SessionTokenBytes      = 32 // 32 bytes -> 64-char hex string
+	SessionCleanupInterval = 5 * time.Minute
+	CookiePath             = "/"
+	CookieDeleteMaxAge     = -1
+)
+
+// --- Rate limiting ---
+
+const (
+	RateLimitWindow = 1 * time.Minute
+)
+
+// --- Auth error codes ---
+
+const (
+	ErrCodeUnauthorized = "unauthorized"
+	ErrCodeTooManyReqs  = "too_many_requests"
+)
+
+// --- Auth error messages ---
+
+const (
+	ErrMsgInvalidCredential = "invalid secret"
+	ErrMsgSessionNotFound   = "session not found or expired"
+	ErrMsgRateLimitExceeded = "too many login attempts, try again later"
+	ErrMsgTokenGeneration   = "failed to generate session token"
+	ErrMsgTemplateRender    = "failed to render template"
+	ErrMsgTemplateParse     = "failed to parse templates"
+)
+
+// --- Auth log messages ---
+
+const (
+	LogMsgLoginSuccess      = "login successful"
+	LogMsgLoginFailed       = "login failed"
+	LogMsgLogout            = "session logged out"
+	LogMsgSessionCreated    = "session created"
+	LogMsgSessionExpired    = "session expired"
+	LogMsgSessionCleanup    = "expired sessions cleaned"
+	LogMsgRateLimited       = "login rate limited"
+	LogMsgAuthMiddleware    = "auth check failed"
+	LogMsgSessionStoreStart = "session cleanup goroutine started"
+	LogMsgSessionStoreStop  = "session cleanup goroutine stopped"
+)
+
+// --- Auth log field names ---
+
+const (
+	LogFieldIP        = "ip"
+	LogFieldSessionID = "session_id"
+	LogFieldExpired   = "expired_count"
+	LogFieldRemaining = "remaining"
+)
+
+// --- Template names ---
+
+const (
+	TemplateBaseDir = "templates"
+	TemplateLayout  = "layout.html"
+	TemplateLogin   = "login.html"
+)
+
+// --- HTTP headers (auth) ---
+
+const (
+	HeaderAccept = "Accept"
+)
+
+// --- Form field names ---
+
+const (
+	FormFieldLoginInput = "secret"
+)
+
+// --- Session token format ---
+
+const (
+	SessionTokenLogPrefixLen = 8
+)

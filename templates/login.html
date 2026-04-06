@@ -1,0 +1,17 @@
+{{define "content"}}
+<main style="display:flex;align-items:center;justify-content:center;min-height:100vh;">
+  <form method="POST" action="/login" style="max-width:360px;width:100%;padding:2rem;">
+    <h1 style="margin-bottom:1.5rem;font-size:1.5rem;">dropper</h1>
+    {{if .Error}}
+    <p style="color:#c0392b;margin-bottom:1rem;">{{.Error}}</p>
+    {{end}}
+    <label for="secret" style="display:block;margin-bottom:0.5rem;">Secret</label>
+    <input type="password" id="secret" name="secret" required autofocus
+           style="width:100%;padding:0.5rem;margin-bottom:1rem;border:1px solid #ccc;border-radius:4px;font-size:1rem;">
+    <button type="submit"
+            style="width:100%;padding:0.5rem;background:#2c3e50;color:#fff;border:none;border-radius:4px;font-size:1rem;cursor:pointer;">
+      Login
+    </button>
+  </form>
+</main>
+{{end}}

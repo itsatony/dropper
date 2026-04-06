@@ -17,10 +17,11 @@ import (
 
 // Server manages the HTTP server lifecycle.
 type Server struct {
-	httpServer *http.Server
-	router     *chi.Mux
-	config     *Config
-	logger     *slog.Logger
+	httpServer   *http.Server
+	router       *chi.Mux
+	config       *Config
+	logger       *slog.Logger
+	sessionStore *SessionStore
 }
 
 // NewServer creates a fully wired server with all routes and middleware.
@@ -31,6 +32,14 @@ func NewServer(cfg *Config, logger *slog.Logger, staticFS fs.FS, templateFS fs.F
 	r.Use(chiMiddleware.RequestID)
 	r.Use(chiMiddleware.RealIP)
 	r.Use(securityHeadersMiddleware)
+
+	// Create session store and rate limiter.
+	ttl, err := cfg.Dropper.SessionTTLDuration()
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", ErrMsgConfigValidation, err)
+	}
+	sessionStore := NewSessionStore(ttl, logger)
+	rateLimiter := NewRateLimiter(cfg.Dropper.RateLimitLogin, RateLimitWindow)
 
 	// Public routes (no auth required).
 	r.Get(RouteHealthz, HandleHealthz(cfg.Dropper.RootDir, logger))
@@ -47,6 +56,26 @@ func NewServer(cfg *Config, logger *slog.Logger, staticFS fs.FS, templateFS fs.F
 		r.Handle(RouteStatic, http.StripPrefix(StaticURLPrefix, fileServer))
 	}
 
+	// Auth routes (public).
+	if templateFS != nil {
+		loginPageHandler, err := HandleLoginPage(templateFS, logger)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", ErrMsgTemplateParse, err)
+		}
+		loginHandler, err := HandleLogin(sessionStore, cfg.Dropper.Secret, rateLimiter, templateFS, logger)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", ErrMsgTemplateParse, err)
+		}
+		r.Get(RouteLogin, loginPageHandler)
+		r.Post(RouteLogin, loginHandler)
+	}
+
+	// Protected routes (session required).
+	r.Group(func(r chi.Router) {
+		r.Use(SessionMiddleware(sessionStore, logger))
+		r.Post(RouteLogout, HandleLogout(sessionStore, logger))
+	})
+
 	addr := net.JoinHostPort("", strconv.Itoa(cfg.Dropper.ListenPort))
 
 	srv := &Server{
@@ -57,9 +86,10 @@ func NewServer(cfg *Config, logger *slog.Logger, staticFS fs.FS, templateFS fs.F
 			WriteTimeout: DefaultWriteTimeout,
 			IdleTimeout:  DefaultIdleTimeout,
 		},
-		router: r,
-		config: cfg,
-		logger: logger,
+		router:       r,
+		config:       cfg,
+		logger:       logger,
+		sessionStore: sessionStore,
 	}
 
 	return srv, nil
@@ -77,6 +107,7 @@ func (s *Server) Start() error {
 // Shutdown gracefully shuts down the server with the given context deadline.
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.logger.Info(LogMsgShutdownStarted)
+	s.sessionStore.Stop()
 	return s.httpServer.Shutdown(ctx)
 }
 
