@@ -542,6 +542,7 @@ const (
 
 const (
 	LogFieldOrigin       = "origin"
+	LogFieldReferer      = "referer"
 	LogFieldExpectedHost = "expected_host"
 )
 

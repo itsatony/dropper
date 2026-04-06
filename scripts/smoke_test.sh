@@ -314,13 +314,16 @@ assert_header_present "Permissions-Policy header present" "${headers}" "Permissi
 assert_header_present "X-Permitted-Cross-Domain-Policies header present" "${headers}" "X-Permitted-Cross-Domain-Policies"
 
 # --- Test 15: CSRF rejection with mismatched Origin ---
-csrf_status="$(curl -so /dev/null -w '%{http_code}' \
+csrf_response="$(curl -s -w '\n%{http_code}' \
     -X POST \
     -b "${session_cookie}" \
     -H "Origin: https://evil.example.com" \
     -F "file=@/dev/null;filename=evil.txt" \
     "${BASE_URL}/files/upload?path=.")"
+csrf_status="$(echo "${csrf_response}" | tail -1)"
+csrf_body="$(echo "${csrf_response}" | sed '$d')"
 assert_status "POST with mismatched Origin returns 403 (CSRF)" "${csrf_status}" "403"
+assert_contains "CSRF rejection returns csrf_rejected code" "${csrf_body}" '"code":"csrf_rejected"'
 
 # ============================================================
 # Part 4: Readonly mode (test 16)

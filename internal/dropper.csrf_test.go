@@ -22,7 +22,7 @@ func TestCSRFMiddleware_SafeMethodsBypass(t *testing.T) {
 	methods := []string{http.MethodGet, http.MethodHead, http.MethodOptions}
 	for _, method := range methods {
 		t.Run(method, func(t *testing.T) {
-			req := httptest.NewRequest(method, "/", nil)
+			req := httptest.NewRequest(method, RouteRoot, nil)
 			// Even with a mismatched origin, safe methods pass through.
 			req.Header.Set(HeaderOrigin, "https://evil.example.com")
 			rec := httptest.NewRecorder()
@@ -197,13 +197,31 @@ func TestCSRFMiddleware_PortMismatch(t *testing.T) {
 	logger := testLogger()
 	middleware := CSRFMiddleware(logger)(csrfTestHandler)
 
-	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	req := httptest.NewRequest(http.MethodPost, RouteRoot, nil)
 	req.Host = "localhost:8080"
 	req.Header.Set(HeaderOrigin, "http://localhost:9090")
 	rec := httptest.NewRecorder()
 
 	middleware.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusForbidden, rec.Code)
+}
+
+func TestCSRFMiddleware_MalformedOrigin(t *testing.T) {
+	logger := testLogger()
+	middleware := CSRFMiddleware(logger)(csrfTestHandler)
+
+	req := httptest.NewRequest(http.MethodPost, RouteRoot, nil)
+	req.Host = "localhost:8080"
+	// Malformed URL — extractHostFromURL returns "", which won't match any host.
+	req.Header.Set(HeaderOrigin, "not-a-valid-url")
+	rec := httptest.NewRecorder()
+
+	middleware.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+
+	var body ErrorBody
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&body))
+	assert.Equal(t, ErrCodeCSRF, body.Code)
 }
 
 func TestExtractHostFromURL(t *testing.T) {

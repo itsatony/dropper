@@ -63,7 +63,7 @@ func CSRFMiddleware(logger *slog.Logger) func(http.Handler) http.Handler {
 			}
 
 			logger.Warn(LogMsgCSRFRejected,
-				LogFieldOrigin, referer,
+				LogFieldReferer, referer,
 				LogFieldExpectedHost, expectedHost,
 				LogFieldIP, clientIP(r),
 			)
