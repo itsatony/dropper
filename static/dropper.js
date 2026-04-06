@@ -10,6 +10,10 @@
   var TOAST_DISMISS_MS = 4000;
   var TOAST_FADE_MS = 300;
 
+  // --- Module-scoped state ---
+  var clipboardBlob = null;
+  var clipboardObjectURL = null;
+
   // --- Toast System ---
 
   function showToast(message, type) {
@@ -163,10 +167,10 @@
       e.preventDefault();
       counter = 0;
       dropzone.classList.remove("drag-over");
-      // File upload wiring deferred to Cycle 7.
+      // Drop handler captures files; upload endpoint wired in file handler cycle.
       if (e.dataTransfer && e.dataTransfer.files.length > 0) {
         showToast(
-          e.dataTransfer.files.length + " file(s) selected (upload wiring in next cycle)",
+          e.dataTransfer.files.length + " file(s) ready for upload",
           "info"
         );
       }
@@ -174,6 +178,20 @@
   }
 
   // --- Clipboard Paste Handler ---
+
+  function cleanupClipboardState() {
+    if (clipboardObjectURL) {
+      URL.revokeObjectURL(clipboardObjectURL);
+      clipboardObjectURL = null;
+    }
+    clipboardBlob = null;
+  }
+
+  function closePreview() {
+    var modal = document.getElementById("preview-modal");
+    if (modal) modal.hidden = true;
+    cleanupClipboardState();
+  }
 
   function initClipboardPaste() {
     document.addEventListener("paste", function (e) {
@@ -194,12 +212,13 @@
           var img = document.getElementById("preview-image");
           if (!modal || !img) return;
 
-          var url = URL.createObjectURL(blob);
-          img.src = url;
-          modal.hidden = false;
+          // Clean up previous paste state before assigning new one.
+          cleanupClipboardState();
 
-          // Store blob for upload (Cycle 7 wiring).
-          window._dropperClipboardBlob = blob;
+          clipboardBlob = blob;
+          clipboardObjectURL = URL.createObjectURL(blob);
+          img.src = clipboardObjectURL;
+          modal.hidden = false;
           break;
         }
       }
@@ -210,16 +229,10 @@
     var cancelBtn = document.getElementById("preview-cancel");
     var backdrop = document.querySelector(".preview-backdrop");
 
-    function closePreview() {
-      var modal = document.getElementById("preview-modal");
-      if (modal) modal.hidden = true;
-      window._dropperClipboardBlob = null;
-    }
-
     if (confirmBtn) {
       confirmBtn.addEventListener("click", function () {
-        // Upload wiring deferred to Cycle 7.
-        showToast("Clipboard upload wiring in next cycle", "info");
+        // Upload endpoint wired in file handler cycle.
+        showToast("Image captured — upload endpoint pending", "info");
         closePreview();
       });
     }
@@ -248,8 +261,9 @@
 
   function initHTMXHooks() {
     document.body.addEventListener("htmx:afterSwap", function () {
-      // Re-initialize dropzone after HTMX swaps content.
+      // Re-initialize components after HTMX swaps content.
       initDropzone();
+      renderBookmarks();
       // Save current directory.
       saveLastDir(getCurrentPath());
     });

@@ -135,8 +135,8 @@ func TestHandleMainPage_InvalidPath_HTML(t *testing.T) {
 
 	handler.ServeHTTP(rec, req)
 
-	// Should still render a page (with error state).
-	assert.Equal(t, http.StatusOK, rec.Code)
+	// Should render a page with error state and 403 status.
+	assert.Equal(t, http.StatusForbidden, rec.Code)
 	assert.Contains(t, rec.Header().Get(HeaderContentType), ContentTypeHTML)
 }
 
@@ -276,6 +276,66 @@ func TestHandleListFiles_NonexistentDir(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 
 	assert.Equal(t, http.StatusForbidden, rec.Code)
+}
+
+func TestHandleListFiles_InvalidSortParams(t *testing.T) {
+	ts := testTemplateSet(t)
+	cfg := testDropperConfig(t)
+	handler := HandleListFiles(ts, cfg, authTestLogger())
+
+	req := httptest.NewRequest(http.MethodGet, RouteFiles+"?"+QueryParamPath+"=.&"+QueryParamSortBy+"=invalid&"+QueryParamSortOrder+"=invalid", nil)
+	req.Header.Set(HeaderAccept, ContentTypeJSON)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var entries []FileEntry
+	err := json.NewDecoder(rec.Body).Decode(&entries)
+	require.NoError(t, err)
+
+	// Invalid sort falls back to default (name asc) — directories first.
+	require.GreaterOrEqual(t, len(entries), 3)
+	assert.True(t, entries[0].IsDir, "directories should come first with default sort")
+}
+
+func TestHandleListFiles_HTMXErrorPath(t *testing.T) {
+	ts := testTemplateSet(t)
+	cfg := testDropperConfig(t)
+	handler := HandleListFiles(ts, cfg, authTestLogger())
+
+	req := httptest.NewRequest(http.MethodGet, RouteFiles+"?"+QueryParamPath+"=../../etc", nil)
+	req.Header.Set(HeaderHXRequest, HXRequestTrue)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	// HTMX error should return 403 with HTML content, not JSON.
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+	assert.Contains(t, rec.Header().Get(HeaderContentType), ContentTypeHTML)
+
+	body := rec.Body.String()
+	// Should contain breadcrumbs (reset to root) and filelist partials.
+	assert.Contains(t, body, BreadcrumbRootLabel)
+	// Must not contain path info.
+	assert.NotContains(t, body, "etc")
+}
+
+func TestHandleListFiles_BrowserErrorRedirect(t *testing.T) {
+	ts := testTemplateSet(t)
+	cfg := testDropperConfig(t)
+	handler := HandleListFiles(ts, cfg, authTestLogger())
+
+	// Browser request (no HX-Request, no Accept: JSON) with bad path.
+	req := httptest.NewRequest(http.MethodGet, RouteFiles+"?"+QueryParamPath+"=../../etc", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	// Browser should be redirected to root.
+	assert.Equal(t, http.StatusSeeOther, rec.Code)
+	assert.Contains(t, rec.Header().Get(HeaderLocation), RouteRoot)
 }
 
 func TestHandleListFiles_Subdir(t *testing.T) {

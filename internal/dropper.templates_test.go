@@ -307,3 +307,33 @@ func TestFormatModTime(t *testing.T) {
 	result := formatModTime(ts)
 	assert.Equal(t, "2026-04-06 14:30", result)
 }
+
+// --- Template urlquery function test ---
+
+func TestTemplateFuncMap_URLQuery(t *testing.T) {
+	funcMap := templateFuncMap()
+	urlqueryFn, ok := funcMap["urlquery"]
+	require.True(t, ok, "urlquery must be in template func map")
+
+	// Cast and test.
+	fn, ok := urlqueryFn.(func(string) string)
+	require.True(t, ok, "urlquery must be func(string) string")
+
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"simple path", "docs", "docs"},
+		{"path with spaces", "my docs", "my+docs"},
+		{"path with ampersand", "a&b", "a%26b"},
+		{"path with slash", "docs/2026", "docs%2F2026"},
+		{"dot path", ".", "."},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, fn(tt.input))
+		})
+	}
+}

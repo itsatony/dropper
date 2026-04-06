@@ -4,7 +4,13 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"net/url"
 )
+
+// buildBrowseURL constructs a URL-safe browse redirect path.
+func buildBrowseURL(relPath string) string {
+	return RouteRoot + "?" + QueryParamPath + "=" + url.QueryEscape(relPath)
+}
 
 // HandleMainPage returns a handler for GET / — the authenticated file browser.
 // Renders the main page template with the directory listing for the requested path.
@@ -36,7 +42,7 @@ func HandleMainPage(ts *TemplateSet, cfg *DropperConfig, logger *slog.Logger) ht
 				return
 			}
 
-			// Render main page with error — show empty state.
+			// Render main page with error at root — show empty state with 403.
 			data := PageData{
 				CurrentPath: DefaultBrowsePath,
 				Breadcrumbs: BuildBreadcrumbs(DefaultBrowsePath),
@@ -45,7 +51,7 @@ func HandleMainPage(ts *TemplateSet, cfg *DropperConfig, logger *slog.Logger) ht
 				Readonly:    cfg.Readonly,
 				Error:       ErrMsgBrowsePath,
 			}
-			if renderErr := ts.RenderPage(w, PageMain, http.StatusOK, data); renderErr != nil {
+			if renderErr := ts.RenderPage(w, PageMain, http.StatusForbidden, data); renderErr != nil {
 				logger.Error(ErrMsgTemplateRender, LogFieldError, renderErr)
 			}
 			return
@@ -99,7 +105,30 @@ func HandleListFiles(ts *TemplateSet, cfg *DropperConfig, logger *slog.Logger) h
 				return
 			}
 
-			RespondError(w, http.StatusForbidden, ErrCodeForbidden, ErrMsgBrowsePath)
+			// HTMX request: return error as HTML partial (empty filelist with error breadcrumb).
+			if IsHTMXRequest(r) {
+				errData := PageData{
+					CurrentPath: DefaultBrowsePath,
+					Breadcrumbs: BuildBreadcrumbs(DefaultBrowsePath),
+					SortBy:      sortBy,
+					SortOrder:   sortOrder,
+					Readonly:    cfg.Readonly,
+					Error:       ErrMsgBrowsePath,
+				}
+				w.Header().Set(HeaderContentType, ContentTypeHTML)
+				w.WriteHeader(http.StatusForbidden)
+				if renderErr := ts.RenderPartial(w, PageMain, BlockBreadcrumbs, errData); renderErr != nil {
+					logger.Error(ErrMsgTemplateRender, LogFieldError, renderErr)
+					return
+				}
+				if renderErr := ts.RenderPartial(w, PageMain, BlockFilelist, errData); renderErr != nil {
+					logger.Error(ErrMsgTemplateRender, LogFieldError, renderErr)
+				}
+				return
+			}
+
+			// Browser: redirect to root with error-safe URL.
+			http.Redirect(w, r, buildBrowseURL(DefaultBrowsePath), http.StatusSeeOther)
 			return
 		}
 
@@ -135,7 +164,7 @@ func HandleListFiles(ts *TemplateSet, cfg *DropperConfig, logger *slog.Logger) h
 			return
 		}
 
-		// Browser direct access — redirect to main page with path param.
-		http.Redirect(w, r, RouteRoot+"?"+QueryParamPath+"="+relPath, http.StatusSeeOther)
+		// Browser direct access — redirect to main page with URL-encoded path param.
+		http.Redirect(w, r, buildBrowseURL(relPath), http.StatusSeeOther)
 	}
 }

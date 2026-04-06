@@ -3,20 +3,20 @@
   <span class="filelist-count">{{len .Entries}} items</span>
   <div class="sort-controls">
     <span class="sort-label">Sort:</span>
-    <a href="/?path={{.CurrentPath}}&sort=name&order={{if and (eq .SortBy "name") (eq .SortOrder "asc")}}desc{{else}}asc{{end}}"
-       hx-get="/files?path={{.CurrentPath}}&sort=name&order={{if and (eq .SortBy "name") (eq .SortOrder "asc")}}desc{{else}}asc{{end}}"
+    <a href="/?path={{urlquery .CurrentPath}}&sort=name&order={{if and (eq .SortBy "name") (eq .SortOrder "asc")}}desc{{else}}asc{{end}}"
+       hx-get="/files?path={{urlquery .CurrentPath}}&sort=name&order={{if and (eq .SortBy "name") (eq .SortOrder "asc")}}desc{{else}}asc{{end}}"
        hx-target="#file-browser"
        class="sort-btn{{if eq .SortBy "name"}} sort-active{{end}}">
       Name {{if eq .SortBy "name"}}{{if eq .SortOrder "asc"}}&#9650;{{else}}&#9660;{{end}}{{end}}
     </a>
-    <a href="/?path={{.CurrentPath}}&sort=date&order={{if and (eq .SortBy "date") (eq .SortOrder "asc")}}desc{{else}}asc{{end}}"
-       hx-get="/files?path={{.CurrentPath}}&sort=date&order={{if and (eq .SortBy "date") (eq .SortOrder "asc")}}desc{{else}}asc{{end}}"
+    <a href="/?path={{urlquery .CurrentPath}}&sort=date&order={{if and (eq .SortBy "date") (eq .SortOrder "asc")}}desc{{else}}asc{{end}}"
+       hx-get="/files?path={{urlquery .CurrentPath}}&sort=date&order={{if and (eq .SortBy "date") (eq .SortOrder "asc")}}desc{{else}}asc{{end}}"
        hx-target="#file-browser"
        class="sort-btn{{if eq .SortBy "date"}} sort-active{{end}}">
       Date {{if eq .SortBy "date"}}{{if eq .SortOrder "asc"}}&#9650;{{else}}&#9660;{{end}}{{end}}
     </a>
-    <a href="/?path={{.CurrentPath}}&sort=size&order={{if and (eq .SortBy "size") (eq .SortOrder "asc")}}desc{{else}}asc{{end}}"
-       hx-get="/files?path={{.CurrentPath}}&sort=size&order={{if and (eq .SortBy "size") (eq .SortOrder "asc")}}desc{{else}}asc{{end}}"
+    <a href="/?path={{urlquery .CurrentPath}}&sort=size&order={{if and (eq .SortBy "size") (eq .SortOrder "asc")}}desc{{else}}asc{{end}}"
+       hx-get="/files?path={{urlquery .CurrentPath}}&sort=size&order={{if and (eq .SortBy "size") (eq .SortOrder "asc")}}desc{{else}}asc{{end}}"
        hx-target="#file-browser"
        class="sort-btn{{if eq .SortBy "size"}} sort-active{{end}}">
       Size {{if eq .SortBy "size"}}{{if eq .SortOrder "asc"}}&#9650;{{else}}&#9660;{{end}}{{end}}
@@ -31,21 +31,21 @@
   {{range .Entries}}
   <li class="filelist-item{{if .IsDir}} filelist-dir{{else}} filelist-file{{end}}">
     {{if .IsDir}}
-    <a href="/?path={{$.ChildPath .Name}}"
-       hx-get="/files?path={{$.ChildPath .Name}}"
+    <a href="/?path={{urlquery ($.ChildPath .Name)}}"
+       hx-get="/files?path={{urlquery ($.ChildPath .Name)}}"
        hx-target="#file-browser"
-       hx-push-url="/?path={{$.ChildPath .Name}}"
+       hx-push-url="/?path={{urlquery ($.ChildPath .Name)}}"
        class="filelist-link filelist-dir-link">
       <span class="filelist-icon" aria-hidden="true">&#128193;</span>
       <span class="filelist-name">{{.Name}}</span>
     </a>
     {{else}}
-    <div class="filelist-link filelist-file-link">
+    <a href="/files/download?path={{urlquery ($.ChildPath .Name)}}" class="filelist-link filelist-file-link" download>
       <span class="filelist-icon" aria-hidden="true">&#128196;</span>
       <span class="filelist-name">{{.Name}}</span>
       <span class="filelist-size">{{.FormattedSize}}</span>
       <span class="filelist-date">{{formatTime .ModTime}}</span>
-    </div>
+    </a>
     {{end}}
   </li>
   {{end}}

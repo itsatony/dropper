@@ -1,12 +1,13 @@
 package dropper
 
 import (
+	"bytes"
 	"fmt"
 	"html/template"
 	"io/fs"
 	"net/http"
+	"net/url"
 	"path"
-	"path/filepath"
 	"strings"
 	"time"
 )
@@ -59,6 +60,7 @@ func templateFuncMap() template.FuncMap {
 		"formatTime": formatModTime,
 		"lower":      strings.ToLower,
 		"sub":        func(a, b int) int { return a - b },
+		"urlquery":   url.QueryEscape,
 	}
 }
 
@@ -72,6 +74,9 @@ func formatModTime(t time.Time) string {
 //
 // Strategy: parse a base set (layout + all partials + all components), then
 // for each page template, clone the base and parse the page into the clone.
+//
+// Uses path.Join (forward slashes) for embed FS paths, not filepath.Join,
+// because embed.FS always uses forward slashes regardless of OS.
 func NewTemplateSet(templateFS fs.FS) (*TemplateSet, error) {
 	if templateFS == nil {
 		return nil, fmt.Errorf("%s: nil filesystem", ErrMsgTemplateSet)
@@ -79,18 +84,17 @@ func NewTemplateSet(templateFS fs.FS) (*TemplateSet, error) {
 
 	funcMap := templateFuncMap()
 
-	// Collect partial and component template paths.
+	// Collect partial and component template paths using path.Join (forward slashes for embed FS).
 	sharedPaths := []string{
-		filepath.Join(TemplateBaseDir, TemplatePartialsDir, TemplateBreadcrumbs),
-		filepath.Join(TemplateBaseDir, TemplatePartialsDir, TemplateFilelist),
-		filepath.Join(TemplateBaseDir, TemplatePartialsDir, TemplateDropzone),
-		filepath.Join(TemplateBaseDir, TemplatePartialsDir, TemplateBookmarks),
-		filepath.Join(TemplateBaseDir, TemplatePartialsDir, TemplateToast),
-		filepath.Join(TemplateBaseDir, TemplateComponentsDir, TemplatePreview),
+		path.Join(TemplateBaseDir, TemplatePartialsDir, TemplateBreadcrumbs),
+		path.Join(TemplateBaseDir, TemplatePartialsDir, TemplateFilelist),
+		path.Join(TemplateBaseDir, TemplatePartialsDir, TemplateDropzone),
+		path.Join(TemplateBaseDir, TemplatePartialsDir, TemplateBookmarks),
+		path.Join(TemplateBaseDir, TemplatePartialsDir, TemplateToast),
+		path.Join(TemplateBaseDir, TemplateComponentsDir, TemplatePreview),
 	}
 
-	// Parse the layout as the base template with function map.
-	layoutPath := filepath.Join(TemplateBaseDir, TemplateLayout)
+	layoutPath := path.Join(TemplateBaseDir, TemplateLayout)
 
 	// Build base template: layout + all shared templates.
 	allBasePaths := append([]string{layoutPath}, sharedPaths...)
@@ -102,8 +106,8 @@ func NewTemplateSet(templateFS fs.FS) (*TemplateSet, error) {
 
 	// For each page, clone the base and parse the page template into the clone.
 	pageTemplates := map[string]string{
-		PageLogin: filepath.Join(TemplateBaseDir, TemplateLogin),
-		PageMain:  filepath.Join(TemplateBaseDir, TemplateMain),
+		PageLogin: path.Join(TemplateBaseDir, TemplateLogin),
+		PageMain:  path.Join(TemplateBaseDir, TemplateMain),
 	}
 
 	pages := make(map[string]*template.Template, len(pageTemplates))
@@ -125,36 +129,41 @@ func NewTemplateSet(templateFS fs.FS) (*TemplateSet, error) {
 }
 
 // RenderPage renders a full page (layout + content block) to the response writer.
-// Sets Content-Type to HTML and writes the given status code.
+// Renders into a buffer first to avoid committing headers on template errors.
 func (ts *TemplateSet) RenderPage(w http.ResponseWriter, pageName string, statusCode int, data any) error {
 	tmpl, ok := ts.pages[pageName]
 	if !ok {
 		return fmt.Errorf("%s: unknown page %q", ErrMsgTemplateRender, pageName)
 	}
 
-	w.Header().Set(HeaderContentType, ContentTypeHTML)
-	w.WriteHeader(statusCode)
-
-	if err := tmpl.ExecuteTemplate(w, TemplateLayout, data); err != nil {
+	var buf bytes.Buffer
+	if err := tmpl.ExecuteTemplate(&buf, TemplateLayout, data); err != nil {
 		return fmt.Errorf("%s: %w", ErrMsgTemplateRender, err)
 	}
+
+	w.Header().Set(HeaderContentType, ContentTypeHTML)
+	w.WriteHeader(statusCode)
+	_, _ = w.Write(buf.Bytes())
 
 	return nil
 }
 
 // RenderPartial renders a named template block without the layout wrapper.
-// Used for HTMX partial responses.
+// Used for HTMX partial responses. Renders into a buffer first to avoid
+// committing headers on template errors.
 func (ts *TemplateSet) RenderPartial(w http.ResponseWriter, pageName string, blockName string, data any) error {
 	tmpl, ok := ts.pages[pageName]
 	if !ok {
 		return fmt.Errorf("%s: unknown page %q", ErrMsgTemplateRender, pageName)
 	}
 
-	w.Header().Set(HeaderContentType, ContentTypeHTML)
-
-	if err := tmpl.ExecuteTemplate(w, blockName, data); err != nil {
+	var buf bytes.Buffer
+	if err := tmpl.ExecuteTemplate(&buf, blockName, data); err != nil {
 		return fmt.Errorf("%s: %w", ErrMsgTemplateRender, err)
 	}
+
+	w.Header().Set(HeaderContentType, ContentTypeHTML)
+	_, _ = w.Write(buf.Bytes())
 
 	return nil
 }

@@ -104,8 +104,9 @@ const (
 	RouteStatic  = "/static/*"
 	RouteLogin   = "/login"
 	RouteLogout  = "/logout"
-	RouteRoot    = "/"
-	RouteFiles   = "/files"
+	RouteRoot          = "/"
+	RouteFiles         = "/files"
+	RouteFilesDownload = "/files/download"
 )
 
 // --- Query parameter names ---
@@ -401,44 +402,23 @@ const (
 	ErrMsgTemplateParse     = "failed to parse templates"
 )
 
-// --- Template log messages ---
-
-const (
-	LogMsgTemplatesParsed = "template set parsed successfully"
-	LogMsgTemplateRender  = "template rendered"
-)
-
 // --- File browsing log messages ---
 
 const (
-	LogMsgBrowseDir      = "directory listed"
-	LogMsgBrowseDenied   = "directory browse denied"
-	LogMsgBrowseNotFound = "directory not found"
+	LogMsgBrowseDenied = "directory browse denied"
 )
 
 // --- File browsing error messages ---
 
 const (
-	ErrMsgBrowseDir   = "failed to list directory"
 	ErrMsgBrowsePath  = "invalid browse path"
 	ErrMsgTemplateSet = "failed to create template set"
-)
-
-// --- File browsing error codes ---
-
-const (
-	ErrCodeBrowseFailed = "browse_failed"
 )
 
 // --- File browsing log fields ---
 
 const (
 	LogFieldBrowsePath = "browse_path"
-	LogFieldSortBy     = "sort_by"
-	LogFieldSortOrder  = "sort_order"
-	LogFieldFileCount  = "file_count"
-	LogFieldHTMX       = "htmx"
-	LogFieldTemplate   = "template"
 )
 
 // --- Auth log messages ---
@@ -491,7 +471,6 @@ const (
 // --- Template block names ---
 
 const (
-	BlockContent     = "content"
 	BlockBreadcrumbs = "breadcrumbs"
 	BlockFilelist    = "filelist"
 	BlockDropzone    = "dropzone"
