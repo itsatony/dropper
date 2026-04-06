@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -319,12 +320,38 @@ func TestListDirectory(t *testing.T) {
 		assert.Equal(t, "big.txt", files[2].Name)
 	})
 
+	t.Run("sort by date with controlled times", func(t *testing.T) {
+		dateRoot := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(dateRoot, "old.txt"), []byte("old"), FilePermissions))
+		require.NoError(t, os.WriteFile(filepath.Join(dateRoot, "new.txt"), []byte("new"), FilePermissions))
+		require.NoError(t, os.WriteFile(filepath.Join(dateRoot, "mid.txt"), []byte("mid"), FilePermissions))
+
+		// Set explicit modification times.
+		oldTime := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+		midTime := time.Date(2025, 6, 15, 0, 0, 0, 0, time.UTC)
+		newTime := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+		require.NoError(t, os.Chtimes(filepath.Join(dateRoot, "old.txt"), oldTime, oldTime))
+		require.NoError(t, os.Chtimes(filepath.Join(dateRoot, "mid.txt"), midTime, midTime))
+		require.NoError(t, os.Chtimes(filepath.Join(dateRoot, "new.txt"), newTime, newTime))
+
+		entries, err := ListDirectory(dateRoot, "", SortByDate, SortOrderAsc)
+		require.NoError(t, err)
+		require.Len(t, entries, 3)
+		assert.Equal(t, "old.txt", entries[0].Name)
+		assert.Equal(t, "mid.txt", entries[1].Name)
+		assert.Equal(t, "new.txt", entries[2].Name)
+
+		// Verify desc order too.
+		entriesDesc, err := ListDirectory(dateRoot, "", SortByDate, SortOrderDesc)
+		require.NoError(t, err)
+		assert.Equal(t, "new.txt", entriesDesc[0].Name)
+		assert.Equal(t, "old.txt", entriesDesc[2].Name)
+	})
+
 	t.Run("empty directory", func(t *testing.T) {
-		emptyDir := filepath.Join(root, "alpha_dir")
 		entries, err := ListDirectory(root, "alpha_dir", SortByName, SortOrderAsc)
 		require.NoError(t, err)
 		assert.Empty(t, entries)
-		_ = emptyDir // keep linter happy
 	})
 
 	t.Run("path jail enforced on listing", func(t *testing.T) {
