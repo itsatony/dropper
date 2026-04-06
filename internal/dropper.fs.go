@@ -512,6 +512,11 @@ func SafeWriteFileWithRelPath(rootDir, baseDir, relPath, filename string,
 		return "", "", NewInvalidRelPathError()
 	}
 
+	// Enforce maximum nesting depth to prevent abuse.
+	if len(sanitizedParts) > MaxRelPathDepth {
+		return "", "", NewInvalidRelPathError()
+	}
+
 	// Build the target directory: baseDir + sanitized relpath components.
 	sanitizedRelDir = strings.Join(sanitizedParts, string(filepath.Separator))
 	targetRelDir := filepath.Join(baseDir, sanitizedRelDir)

@@ -12,6 +12,19 @@
   var TOAST_FADE_MS = 300;
   var PROGRESS_HIDE_DELAY_MS = 500;
 
+  // --- User-facing messages ---
+  var MSG_UPLOAD_FAILED = "Upload failed";
+  var MSG_UPLOAD_INVALID_RESPONSE = "Upload failed: invalid response";
+  var MSG_UPLOAD_NETWORK_ERROR = "Upload failed: network error";
+  var MSG_UPLOAD_CANCELLED = "Upload cancelled";
+  var MSG_UPLOAD_FILES_FAILED = " file(s) failed to upload";
+  var MSG_UPLOAD_FILES_SUCCESS = " file(s) uploaded";
+  var MSG_MKDIR_FAILED = "Failed to create folder";
+  var MSG_MKDIR_PREFIX = "Created: ";
+  var MSG_MKDIR_ERROR_PREFIX = "Failed: ";
+  var MSG_BOOKMARK_PREFIX = "Bookmarked: ";
+  var MSG_BOOKMARK_HOME = "Home";
+
   // --- Module-scoped state ---
   var clipboardBlob = null;
   var clipboardObjectURL = null;
@@ -209,32 +222,32 @@
       try {
         data = JSON.parse(xhr.responseText);
       } catch (e) {
-        showToast("Upload failed: invalid response", "error");
+        showToast(MSG_UPLOAD_INVALID_RESPONSE, "error");
         return;
       }
 
       if (xhr.status !== 200) {
-        showToast(data.message || "Upload failed", "error");
+        showToast(data.message || MSG_UPLOAD_FAILED, "error");
         return;
       }
 
       if (data.failed > 0) {
-        showToast(data.failed + " file(s) failed to upload", "error");
+        showToast(data.failed + MSG_UPLOAD_FILES_FAILED, "error");
       }
       if (data.uploaded > 0) {
-        showToast(data.uploaded + " file(s) uploaded", "success");
+        showToast(data.uploaded + MSG_UPLOAD_FILES_SUCCESS, "success");
       }
       refreshFileList();
     });
 
     xhr.addEventListener("error", function () {
       hideProgress();
-      showToast("Upload failed: network error", "error");
+      showToast(MSG_UPLOAD_NETWORK_ERROR, "error");
     });
 
     xhr.addEventListener("abort", function () {
       hideProgress();
-      showToast("Upload cancelled", "info");
+      showToast(MSG_UPLOAD_CANCELLED, "info");
     });
 
     xhr.send(formData);
@@ -321,46 +334,47 @@
     uploadFormData(formData, url);
   }
 
-  // Check if the DataTransfer contains directory entries.
-  function hasDirectoryEntries(dataTransfer) {
-    if (!dataTransfer || !dataTransfer.items) return false;
-    for (var i = 0; i < dataTransfer.items.length; i++) {
-      var entry = dataTransfer.items[i].webkitGetAsEntry
-        ? dataTransfer.items[i].webkitGetAsEntry()
-        : null;
-      if (entry && entry.isDirectory) return true;
-    }
-    return false;
-  }
-
   // Handle drop with directory support.
+  // Collects webkitGetAsEntry results once to avoid repeated calls
+  // (some browsers invalidate entries on subsequent calls).
   function handleDrop(dataTransfer) {
     if (!dataTransfer) return;
 
-    // Check for webkitGetAsEntry support and directory entries.
     var items = dataTransfer.items;
     var hasEntryAPI = items && items.length > 0 && items[0].webkitGetAsEntry;
 
-    if (hasEntryAPI && hasDirectoryEntries(dataTransfer)) {
-      // Directory upload: traverse entries recursively.
-      var promises = [];
+    if (hasEntryAPI) {
+      // Collect all entries in a single pass.
+      var entries = [];
+      var hasDir = false;
       for (var i = 0; i < items.length; i++) {
         var entry = items[i].webkitGetAsEntry();
         if (entry) {
-          promises.push(traverseEntry(entry, entry.name));
+          entries.push(entry);
+          if (entry.isDirectory) hasDir = true;
         }
       }
-      Promise.all(promises).then(function (results) {
-        var flat = [];
-        results.forEach(function (arr) {
-          flat = flat.concat(arr);
+
+      if (hasDir) {
+        // Directory upload: traverse entries recursively.
+        var promises = entries.map(function (entry) {
+          return traverseEntry(entry, entry.name);
         });
-        if (flat.length > 0) {
-          uploadFilesWithPaths(flat);
-        }
-      });
-    } else if (dataTransfer.files.length > 0) {
-      // Flat file upload (no directory structure).
+        Promise.all(promises).then(function (results) {
+          var flat = [];
+          results.forEach(function (arr) {
+            flat = flat.concat(arr);
+          });
+          if (flat.length > 0) {
+            uploadFilesWithPaths(flat);
+          }
+        });
+        return;
+      }
+    }
+
+    // Flat file upload (no directory structure or no entry API).
+    if (dataTransfer.files.length > 0) {
       uploadFiles(dataTransfer.files, false);
     }
   }
@@ -500,7 +514,7 @@
     btn.addEventListener("click", function () {
       var path = getCurrentPath();
       addBookmark(path);
-      showToast("Bookmarked: " + (path === "." ? "Home" : path), "success");
+      showToast(MSG_BOOKMARK_PREFIX + (path === "." ? MSG_BOOKMARK_HOME : path), "success");
     });
   }
 
@@ -529,14 +543,14 @@
         })
         .then(function (result) {
           if (result.status === 201) {
-            showToast("Created: " + result.data.name, "success");
+            showToast(MSG_MKDIR_PREFIX + result.data.name, "success");
             refreshFileList();
           } else {
-            showToast(result.data.message || "Failed to create folder", "error");
+            showToast(result.data.message || MSG_MKDIR_FAILED, "error");
           }
         })
         .catch(function (err) {
-          showToast("Failed: " + err.message, "error");
+          showToast(MSG_MKDIR_ERROR_PREFIX + err.message, "error");
         });
     });
   }
@@ -586,8 +600,9 @@
     initBookmarkAdd();
     initMkdirButton();
     initHTMXHooks();
-    saveLastDir(getCurrentPath());
+    // Navigate to last dir first, then save the resolved path.
     maybeNavigateToLastDir();
+    saveLastDir(getCurrentPath());
   }
 
   if (document.readyState === "loading") {

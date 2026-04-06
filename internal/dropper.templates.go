@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"html/template"
 	"io/fs"
+	"math"
 	"net/http"
 	"net/url"
 	"path"
@@ -74,8 +75,12 @@ func templateFuncMap() template.FuncMap {
 }
 
 // FormatDiskSizeFloat formats a uint64 byte count as a human-readable string.
-func FormatDiskSizeFloat(bytes uint64) string {
-	return FormatFileSize(int64(bytes))
+// Delegates to FormatFileSize with an overflow guard for disks > math.MaxInt64.
+func FormatDiskSizeFloat(size uint64) string {
+	if size > math.MaxInt64 {
+		return FormatFileSize(math.MaxInt64)
+	}
+	return FormatFileSize(int64(size))
 }
 
 // FormatDiskPercent formats a float64 percentage to one decimal place.

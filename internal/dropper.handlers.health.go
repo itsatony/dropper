@@ -1,6 +1,7 @@
 package dropper
 
 import (
+	"fmt"
 	"log/slog"
 	"net/http"
 	"syscall"
@@ -26,27 +27,31 @@ type HealthResponse struct {
 // Reports disk usage of the configured root directory.
 // Supports HTMX content negotiation: when HX-Request is present, renders
 // the diskusage HTML partial instead of JSON.
-func HandleHealthz(rootDir string, ts *TemplateSet, logger *slog.Logger) http.HandlerFunc {
+func HandleHealthz(rootDir string, logger *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		disk, err := getDiskUsage(rootDir)
 		if err != nil {
 			logger.Warn(ErrMsgDiskUsage, LogFieldError, err, LogFieldRootDir, rootDir)
-			if IsHTMXRequest(r) && ts != nil {
+			if IsHTMXRequest(r) {
 				w.Header().Set(HeaderContentType, ContentTypeHTML)
-				w.WriteHeader(http.StatusOK)
+				_, _ = fmt.Fprint(w, DiskUsageUnavailableHTML)
 				return
 			}
 			RespondOK(w, &HealthResponse{Status: HealthStatusOK})
 			return
 		}
 
-		// HTMX request: render disk usage HTML partial.
-		if IsHTMXRequest(r) && ts != nil {
-			data := DiskUsageData{DiskUsage: disk}
+		// HTMX request: render inner HTML only (not the full diskusage block)
+		// to avoid nesting <footer> elements and an hx-trigger="load" infinite loop.
+		if IsHTMXRequest(r) {
 			w.Header().Set(HeaderContentType, ContentTypeHTML)
-			if renderErr := ts.RenderPartial(w, PageMain, BlockDiskUsage, data); renderErr != nil {
-				logger.Error(ErrMsgTemplateRender, LogFieldError, renderErr)
-			}
+			_, _ = fmt.Fprintf(w, DiskUsageInnerHTMLFormat,
+				FormatDiskSizeFloat(disk.UsedBytes),
+				FormatDiskSizeFloat(disk.TotalBytes),
+				FormatDiskPercent(disk.UsedPercent),
+				disk.UsedPercent,
+				disk.UsedPercent,
+			)
 			return
 		}
 

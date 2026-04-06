@@ -887,6 +887,43 @@ func TestSafeWriteFileWithRelPath(t *testing.T) {
 		assert.True(t, errors.Is(err, ErrExtNotAllowed))
 	})
 
+	t.Run("exceeds max depth rejected", func(t *testing.T) {
+		root := t.TempDir()
+		data := bytes.NewReader([]byte("too deep"))
+
+		// Build a relpath with MaxRelPathDepth+1 components.
+		deepParts := make([]string, MaxRelPathDepth+1)
+		for i := range deepParts {
+			deepParts[i] = "d"
+		}
+		deepPath := strings.Join(deepParts, "/")
+
+		_, _, err := SafeWriteFileWithRelPath(
+			root, ".", deepPath, "file.txt", data,
+			DefaultMaxUploadBytes, nil, false, logger,
+		)
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, ErrInvalidRelPath))
+	})
+
+	t.Run("at max depth succeeds", func(t *testing.T) {
+		root := t.TempDir()
+		data := bytes.NewReader([]byte("just right"))
+
+		// Build a relpath with exactly MaxRelPathDepth components.
+		parts := make([]string, MaxRelPathDepth)
+		for i := range parts {
+			parts[i] = "d"
+		}
+		relPath := strings.Join(parts, "/")
+
+		_, _, err := SafeWriteFileWithRelPath(
+			root, ".", relPath, "file.txt", data,
+			DefaultMaxUploadBytes, nil, false, logger,
+		)
+		require.NoError(t, err)
+	})
+
 	t.Run("baseDir combined with relpath", func(t *testing.T) {
 		root := t.TempDir()
 		// Create the base directory first.

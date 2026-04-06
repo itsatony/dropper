@@ -213,6 +213,20 @@ const (
 	DiskPercent100 = 100.0
 )
 
+// --- Disk usage HTMX response ---
+// These HTML fragments are rendered directly by HandleHealthz for HTMX requests
+// to avoid the infinite loop that would occur if we rendered the full diskusage
+// template block (which includes hx-trigger="load").
+
+const (
+	DiskUsageInnerHTMLFormat = `<div class="disk-usage-info">` +
+		`<span class="disk-usage-text">Disk: %s / %s (%s)</span>` +
+		`<div class="disk-bar" role="progressbar" aria-label="Disk usage" aria-valuenow="%.0f" aria-valuemin="0" aria-valuemax="100">` +
+		`<div class="disk-bar-fill" style="width: %.1f%%"></div>` +
+		`</div></div>`
+	DiskUsageUnavailableHTML = `<span class="disk-usage-error">Disk info unavailable</span>`
+)
+
 // --- Fatal output format ---
 
 const (
@@ -375,6 +389,15 @@ const (
 
 const (
 	RelPathSeparator = "/"
+	// MaxRelPathDepth limits the number of directory nesting levels in directory uploads.
+	// Prevents malicious clients from creating excessively deep directory trees.
+	MaxRelPathDepth = 32
+)
+
+// --- Directory upload error messages ---
+
+const (
+	ErrMsgRelPathTooDeep = "relative path exceeds maximum directory depth"
 )
 
 // --- Request logging ---

@@ -18,7 +18,7 @@ func healthTestLogger() *slog.Logger {
 }
 
 func TestHandleHealthz_Returns200(t *testing.T) {
-	handler := HandleHealthz("/tmp", nil, healthTestLogger())
+	handler := HandleHealthz("/tmp", healthTestLogger())
 	req := httptest.NewRequest(http.MethodGet, RouteHealthz, nil)
 	rec := httptest.NewRecorder()
 
@@ -34,7 +34,7 @@ func TestHandleHealthz_Returns200(t *testing.T) {
 }
 
 func TestHandleHealthz_DiskFields(t *testing.T) {
-	handler := HandleHealthz("/tmp", nil, healthTestLogger())
+	handler := HandleHealthz("/tmp", healthTestLogger())
 	req := httptest.NewRequest(http.MethodGet, RouteHealthz, nil)
 	rec := httptest.NewRecorder()
 
@@ -52,7 +52,7 @@ func TestHandleHealthz_DiskFields(t *testing.T) {
 }
 
 func TestHandleHealthz_InvalidRootDir(t *testing.T) {
-	handler := HandleHealthz("/nonexistent/path/that/does/not/exist", nil, healthTestLogger())
+	handler := HandleHealthz("/nonexistent/path/that/does/not/exist", healthTestLogger())
 	req := httptest.NewRequest(http.MethodGet, RouteHealthz, nil)
 	rec := httptest.NewRecorder()
 
@@ -70,8 +70,7 @@ func TestHandleHealthz_InvalidRootDir(t *testing.T) {
 // --- DC-10 HTMX disk usage tests ---
 
 func TestHandleHealthz_HTMXResponse_ReturnsHTML(t *testing.T) {
-	ts := testTemplateSet(t)
-	handler := HandleHealthz("/tmp", ts, healthTestLogger())
+	handler := HandleHealthz("/tmp", healthTestLogger())
 
 	req := httptest.NewRequest(http.MethodGet, RouteHealthz, nil)
 	req.Header.Set(HeaderHXRequest, HXRequestTrue)
@@ -83,13 +82,16 @@ func TestHandleHealthz_HTMXResponse_ReturnsHTML(t *testing.T) {
 	assert.Contains(t, rec.Header().Get(HeaderContentType), ContentTypeHTML)
 
 	body := rec.Body.String()
-	// Should contain disk usage info rendered as HTML.
+	// Should contain disk usage info rendered as HTML (inner content only, no footer wrapper).
 	assert.Contains(t, body, "Disk:")
+	assert.Contains(t, body, "disk-bar")
+	// Must NOT contain the footer wrapper (prevents HTMX infinite loop).
+	assert.NotContains(t, body, "hx-trigger")
+	assert.NotContains(t, body, "<footer")
 }
 
 func TestHandleHealthz_HTMXResponse_InvalidPath(t *testing.T) {
-	ts := testTemplateSet(t)
-	handler := HandleHealthz("/nonexistent/path", ts, healthTestLogger())
+	handler := HandleHealthz("/nonexistent/path", healthTestLogger())
 
 	req := httptest.NewRequest(http.MethodGet, RouteHealthz, nil)
 	req.Header.Set(HeaderHXRequest, HXRequestTrue)
@@ -97,14 +99,15 @@ func TestHandleHealthz_HTMXResponse_InvalidPath(t *testing.T) {
 
 	handler.ServeHTTP(rec, req)
 
-	// Should still return 200 with empty content (graceful degradation).
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Header().Get(HeaderContentType), ContentTypeHTML)
+	// Should show unavailable message, not empty body.
+	assert.Contains(t, rec.Body.String(), DiskUsageUnavailableHTML)
 }
 
 func TestHandleHealthz_JSONPreserved(t *testing.T) {
 	// Ensure non-HTMX requests still get JSON.
-	handler := HandleHealthz("/tmp", nil, healthTestLogger())
+	handler := HandleHealthz("/tmp", healthTestLogger())
 	req := httptest.NewRequest(http.MethodGet, RouteHealthz, nil)
 	rec := httptest.NewRecorder()
 

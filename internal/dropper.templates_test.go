@@ -338,6 +338,47 @@ func TestFormatModTime(t *testing.T) {
 	assert.Equal(t, "2026-04-06 14:30", result)
 }
 
+// --- DC-10 FormatDiskSizeFloat / FormatDiskPercent tests ---
+
+func TestFormatDiskSizeFloat(t *testing.T) {
+	tests := []struct {
+		name string
+		size uint64
+		want string
+	}{
+		{"zero", 0, "0 B"},
+		{"bytes", 512, "512 B"},
+		{"kilobytes", 1536, "1.5 KB"},
+		{"megabytes", 4404019, "4.2 MB"},
+		{"gigabytes", 1073741824, "1.0 GB"},
+		{"terabytes", 1099511627776, "1.0 TB"},
+		{"max int64 boundary", 9223372036854775807, "8388608.0 TB"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := FormatDiskSizeFloat(tt.size)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestFormatDiskPercent(t *testing.T) {
+	tests := []struct {
+		name string
+		pct  float64
+		want string
+	}{
+		{"zero", 0, "0.0%"},
+		{"fractional", 24.5, "24.5%"},
+		{"hundred", 100.0, "100.0%"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, FormatDiskPercent(tt.pct))
+		})
+	}
+}
+
 // --- Template urlquery function test ---
 
 func TestTemplateFuncMap_URLQuery(t *testing.T) {
