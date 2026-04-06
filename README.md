@@ -71,6 +71,7 @@ Config is loaded from YAML file + env var overrides. Env vars take precedence.
 | `dropper.logging.level` | `DROPPER_LOGGING_LEVEL` | `info` | Log level (debug, info, warn, error) |
 | `dropper.logging.format` | `DROPPER_LOGGING_FORMAT` | `json` | Log format (json, console) |
 | `dropper.logging.output` | `DROPPER_LOGGING_OUTPUT` | `stdout` | Log output (stdout, stderr) |
+| `dropper.logging.no_log_paths` | `DROPPER_LOGGING_NO_LOG_PATHS` | `[]` | Paths excluded from request logging (e.g. `/healthz`) |
 
 ---
 

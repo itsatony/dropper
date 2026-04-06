@@ -438,6 +438,47 @@ func TestNewAuditEntry_SetsFields(t *testing.T) {
 	assert.Nil(t, entry.FileSize, "file_size should default to nil")
 }
 
+// --- DC-09 heavy concurrent writes ---
+
+func TestAuditLogger_ConcurrentWrites_Heavy(t *testing.T) {
+	al, path := testAuditLogger(t)
+
+	const goroutines = 10
+	const entriesPerGoroutine = 100
+	const totalEntries = goroutines * entriesPerGoroutine
+
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+
+	for g := range goroutines {
+		go func(gID int) {
+			defer wg.Done()
+			for i := range entriesPerGoroutine {
+				size := int64(gID*entriesPerGoroutine + i)
+				al.Log(AuditEntry{
+					ClientIP: "10.0.0.1",
+					Action:   AuditActionUpload,
+					Path:     "/heavy/test.txt",
+					FileSize: &size,
+					Success:  true,
+				})
+			}
+		}(g)
+	}
+
+	wg.Wait()
+
+	entries := readAuditLines(t, path)
+	assert.Len(t, entries, totalEntries, "should have exactly %d entries", totalEntries)
+
+	// Every entry must be valid JSON with expected fields.
+	for idx, entry := range entries {
+		assert.NotEmpty(t, entry.Timestamp, "entry %d should have timestamp", idx)
+		assert.Equal(t, AuditActionUpload, entry.Action, "entry %d action", idx)
+		assert.True(t, entry.Success, "entry %d success", idx)
+	}
+}
+
 func TestNewAuditEntry_ClientIPWithPort(t *testing.T) {
 	tests := []struct {
 		name       string

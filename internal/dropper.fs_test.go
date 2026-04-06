@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -619,4 +620,122 @@ func TestCreateDirectory(t *testing.T) {
 		require.NoError(t, err)
 		assert.True(t, info.IsDir())
 	})
+}
+
+// --- DC-09 resolveWithAncestorWalk tests ---
+
+func TestSafePath_NonExistentNestedPath(t *testing.T) {
+	root := t.TempDir()
+	// Create a real parent but request a non-existent child — exercises ancestor walk.
+	require.NoError(t, os.Mkdir(filepath.Join(root, "exists"), DirPermissions))
+
+	// Non-existent file under existing parent — ancestor walk resolves "exists" then appends "ghost.txt".
+	resolved, err := SafePath(root, "exists/ghost.txt")
+	require.NoError(t, err)
+	assert.Contains(t, resolved, "exists")
+	assert.Contains(t, resolved, "ghost.txt")
+}
+
+func TestSafePath_DeeplyNonExistentPath(t *testing.T) {
+	root := t.TempDir()
+	// Multiple non-existent levels — ancestor walk goes all the way to root.
+	resolved, err := SafePath(root, "a/b/c/d/file.txt")
+	require.NoError(t, err)
+	assert.True(t, strings.HasPrefix(resolved, root))
+	assert.Contains(t, resolved, "a")
+}
+
+// --- DC-09 SafePath max length test ---
+
+func TestSafePath_MaxPathLength(t *testing.T) {
+	root := t.TempDir()
+
+	longPath := strings.Repeat("a", MaxPathLength+1)
+	_, err := SafePath(root, longPath)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), ErrMsgPathTooLong)
+
+	// Exactly at limit should not trigger the length guard (may fail for other reasons).
+	atLimit := strings.Repeat("a", MaxPathLength)
+	_, err = SafePath(root, atLimit)
+	// Should NOT contain path too long error — may fail with not-found or traversal, but not length.
+	if err != nil {
+		assert.NotContains(t, err.Error(), ErrMsgPathTooLong)
+	}
+}
+
+// --- DC-09 concurrent write test ---
+
+func TestSafeWriteFile_ConcurrentWrites(t *testing.T) {
+	root := t.TempDir()
+	logger := testLogger()
+
+	// Each goroutine writes a uniquely-named file. This tests thread safety
+	// of the SafeWriteFile pipeline (temp files, rename) under concurrency.
+	const goroutines = 10
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+
+	results := make([]string, goroutines)
+	errs := make([]error, goroutines)
+
+	for i := range goroutines {
+		go func(n int) {
+			defer wg.Done()
+			data := bytes.NewReader([]byte("content from goroutine"))
+			filename := "concurrent_" + strings.Repeat("x", n+1) + ".txt"
+			name, err := SafeWriteFile(root, "", filename, data, DefaultMaxUploadBytes, nil, false, logger)
+			results[n] = name
+			errs[n] = err
+		}(i)
+	}
+
+	wg.Wait()
+
+	// All writes must succeed.
+	for i, err := range errs {
+		require.NoError(t, err, "goroutine %d should not error", i)
+	}
+
+	// All filenames must be unique.
+	nameSet := make(map[string]bool, goroutines)
+	for i, name := range results {
+		assert.NotEmpty(t, name, "goroutine %d should return a filename", i)
+		assert.False(t, nameSet[name], "goroutine %d filename %q should be unique", i, name)
+		nameSet[name] = true
+	}
+
+	// Exactly N files on disk, no temp files left behind.
+	entries, err := os.ReadDir(root)
+	require.NoError(t, err)
+	assert.Len(t, entries, goroutines, "should have exactly %d files on disk", goroutines)
+}
+
+// TestSafeWriteFile_CollisionResolution_Sequential tests that two sequential writes
+// to the same filename correctly resolve collisions.
+func TestSafeWriteFile_CollisionResolution_Sequential(t *testing.T) {
+	root := t.TempDir()
+	logger := testLogger()
+
+	// First write — no collision.
+	data1 := bytes.NewReader([]byte("first"))
+	name1, err := SafeWriteFile(root, "", "dup.txt", data1, DefaultMaxUploadBytes, nil, false, logger)
+	require.NoError(t, err)
+	assert.Equal(t, "dup.txt", name1)
+
+	// Second write — collision, should get timestamp prefix.
+	data2 := bytes.NewReader([]byte("second"))
+	name2, err := SafeWriteFile(root, "", "dup.txt", data2, DefaultMaxUploadBytes, nil, false, logger)
+	require.NoError(t, err)
+	assert.NotEqual(t, name1, name2)
+	assert.Contains(t, name2, "dup.txt")
+
+	// Both files should exist with correct content.
+	c1, err := os.ReadFile(filepath.Join(root, name1))
+	require.NoError(t, err)
+	assert.Equal(t, "first", string(c1))
+
+	c2, err := os.ReadFile(filepath.Join(root, name2))
+	require.NoError(t, err)
+	assert.Equal(t, "second", string(c2))
 }

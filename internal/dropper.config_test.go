@@ -173,6 +173,74 @@ func TestLoadConfig_MissingFile(t *testing.T) {
 	assert.Contains(t, err.Error(), ErrMsgConfigLoad)
 }
 
+// --- DC-09 config validation tests ---
+
+func TestConfig_AllowedExtensionsMustStartWithDot(t *testing.T) {
+	yaml := `
+dropper:
+  secret: "test-secret-minimum-length"
+  root_dir: "/tmp"
+  allowed_extensions: ["png"]
+`
+	path := writeTestConfig(t, yaml)
+	_, err := LoadConfig(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), ErrMsgExtMissingDot)
+}
+
+func TestConfig_AllowedExtensionsWithDotPass(t *testing.T) {
+	yaml := `
+dropper:
+  secret: "test-secret-minimum-length"
+  root_dir: "/tmp"
+  allowed_extensions: [".png", ".jpg"]
+`
+	path := writeTestConfig(t, yaml)
+	cfg, err := LoadConfig(path)
+	require.NoError(t, err)
+	assert.Equal(t, []string{".png", ".jpg"}, cfg.Dropper.AllowedExtensions)
+}
+
+func TestConfig_RootDirMustExist(t *testing.T) {
+	yaml := `
+dropper:
+  secret: "test-secret-minimum-length"
+  root_dir: "/nonexistent/path/that/does/not/exist"
+`
+	path := writeTestConfig(t, yaml)
+	_, err := LoadConfig(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), ErrMsgRootDirNotExist)
+}
+
+func TestConfig_AuditLogPathParentMustExist(t *testing.T) {
+	yaml := `
+dropper:
+  secret: "test-secret-minimum-length"
+  root_dir: "/tmp"
+  audit_log_path: "/nonexistent/dir/audit.log"
+`
+	path := writeTestConfig(t, yaml)
+	_, err := LoadConfig(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), ErrMsgAuditLogParentNoDir)
+}
+
+func TestConfig_NoLogPaths_EnvVar(t *testing.T) {
+	yaml := `
+dropper:
+  secret: "test-secret-minimum-length"
+  root_dir: "/tmp"
+`
+	path := writeTestConfig(t, yaml)
+	t.Setenv(EnvLoggingNoLogPaths, "/healthz /version")
+
+	cfg, err := LoadConfig(path)
+	require.NoError(t, err)
+	// Viper parses space-separated strings into a slice for list types.
+	assert.NotEmpty(t, cfg.Dropper.Logging.NoLogPaths)
+}
+
 func TestSessionTTLDuration(t *testing.T) {
 	tests := []struct {
 		name    string

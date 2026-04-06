@@ -40,17 +40,18 @@ const ConfigKeySecret = "dropper." + "secret"
 // --- Environment variable names ---
 
 const (
-	EnvListenPort     = "DROPPER_LISTEN_PORT"
-	EnvSessionTTL     = "DROPPER_SESSION_TTL"
-	EnvRateLimitLogin = "DROPPER_RATE_LIMIT_LOGIN"
-	EnvRootDir        = "DROPPER_ROOT_DIR"
-	EnvReadonly       = "DROPPER_READONLY"
-	EnvMaxUploadBytes = "DROPPER_MAX_UPLOAD_BYTES"
-	EnvAllowedExts    = "DROPPER_ALLOWED_EXTENSIONS"
-	EnvAuditLogPath   = "DROPPER_AUDIT_LOG_PATH"
-	EnvLoggingLevel  = "DROPPER_LOGGING_LEVEL"
-	EnvLoggingFormat = "DROPPER_LOGGING_FORMAT"
-	EnvLoggingOutput = "DROPPER_LOGGING_OUTPUT"
+	EnvListenPort        = "DROPPER_LISTEN_PORT"
+	EnvSessionTTL        = "DROPPER_SESSION_TTL"
+	EnvRateLimitLogin    = "DROPPER_RATE_LIMIT_LOGIN"
+	EnvRootDir           = "DROPPER_ROOT_DIR"
+	EnvReadonly          = "DROPPER_READONLY"
+	EnvMaxUploadBytes    = "DROPPER_MAX_UPLOAD_BYTES"
+	EnvAllowedExts       = "DROPPER_ALLOWED_EXTENSIONS"
+	EnvAuditLogPath      = "DROPPER_AUDIT_LOG_PATH"
+	EnvLoggingLevel      = "DROPPER_LOGGING_LEVEL"
+	EnvLoggingFormat     = "DROPPER_LOGGING_FORMAT"
+	EnvLoggingOutput     = "DROPPER_LOGGING_OUTPUT"
+	EnvLoggingNoLogPaths = "DROPPER_LOGGING_NO_LOG_PATHS"
 )
 
 // EnvSecret is the environment variable name for the auth secret.
@@ -237,9 +238,16 @@ const (
 	ErrCodeInternal = "internal_error"
 )
 
+// --- Path limits ---
+
+const (
+	MaxPathLength = 4096
+)
+
 // --- Filesystem error messages ---
 
 const (
+	ErrMsgPathTooLong     = "request path exceeds maximum length"
 	ErrMsgPathTraversal   = "path traversal denied"
 	ErrMsgPathResolution  = "failed to resolve path"
 	ErrMsgInvalidFilename = "invalid filename"
@@ -263,9 +271,18 @@ const (
 	ErrMsgInternal        = "internal server error"
 )
 
+// --- Config validation error messages ---
+
+const (
+	ErrMsgRootDirNotExist     = "root_dir does not exist or is not a directory"
+	ErrMsgExtMissingDot       = "allowed_extensions entries must start with '.'"
+	ErrMsgAuditLogParentNoDir = "audit_log_path parent directory does not exist"
+)
+
 // --- Filesystem error codes ---
 
 const (
+	ErrCodePathTooLong     = "path_too_long"
 	ErrCodeForbidden       = "forbidden"
 	ErrCodeBadRequest      = "bad_request"
 	ErrCodeNotFound        = "not_found"
@@ -347,6 +364,21 @@ const (
 const (
 	SizeFormatBytes   = "%d %s"
 	SizeFormatDecimal = "%.1f %s"
+)
+
+// --- Request logging ---
+
+const (
+	LogMsgRequestCompleted = "request completed"
+)
+
+// --- Request logging field names ---
+
+const (
+	LogFieldMethod   = "method"
+	LogFieldURLPath  = "url_path"
+	LogFieldStatus   = "status"
+	LogFieldDuration = "duration_ms"
 )
 
 // --- Log messages (filesystem) ---

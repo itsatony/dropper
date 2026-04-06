@@ -96,6 +96,11 @@ func ValidateExtension(filename string, allowed []string) bool {
 //
 // Returns the validated absolute path or an error.
 func SafePath(rootDir, requestedPath string) (string, error) {
+	// Reject excessively long paths early — prevents resource waste.
+	if len(requestedPath) > MaxPathLength {
+		return "", NewPathTooLongError()
+	}
+
 	// Reject null bytes early — they can bypass string checks.
 	if strings.ContainsRune(requestedPath, '\x00') {
 		return "", NewPathTraversalError()

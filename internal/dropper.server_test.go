@@ -3,6 +3,7 @@ package dropper
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"mime/multipart"
@@ -12,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"testing/fstest"
 
@@ -1085,4 +1087,387 @@ func TestServer_ErrorMetrics(t *testing.T) {
 		"metrics should contain error counter after error")
 	assert.Contains(t, bodyStr, `error_code="`+ErrCodeBadRequest+`"`,
 		"metrics should contain bad_request error code label")
+}
+
+// --- DC-09 Integration Tests ---
+
+func TestServer_FullWorkflow_MkdirUploadListDownload(t *testing.T) {
+	initTestVersion(t)
+	cfg := testConfig(t)
+	srv, err := NewServer(cfg, testLogger(), nil, testTemplateFS())
+	require.NoError(t, err)
+
+	ts := httptest.NewServer(srv.Router())
+	defer ts.Close()
+	t.Cleanup(func() { _ = srv.Shutdown(t.Context()) })
+
+	cookie := loginAndGetCookie(t, ts.URL, cfg.Dropper.Secret)
+	client := noRedirectClient()
+
+	// Step 1: Mkdir "dc9".
+	mkdirReq, err := http.NewRequest(http.MethodPost,
+		ts.URL+RouteFilesMkdir+"?"+QueryParamPath+"=.&"+QueryParamName+"=dc9", nil)
+	require.NoError(t, err)
+	mkdirReq.AddCookie(cookie)
+	mkdirResp, err := client.Do(mkdirReq)
+	require.NoError(t, err)
+	defer mkdirResp.Body.Close()
+	require.Equal(t, http.StatusCreated, mkdirResp.StatusCode)
+
+	var mkdirBody MkdirResponse
+	require.NoError(t, json.NewDecoder(mkdirResp.Body).Decode(&mkdirBody))
+	assert.Equal(t, "dc9", mkdirBody.Name)
+
+	// Step 2: Upload a file into dc9.
+	uploadContent := []byte("dc9 workflow test content")
+	resp := serverMultipartUpload(t, ts.URL, cookie, "dc9", map[string][]byte{
+		"workflow.txt": uploadContent,
+	})
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var uploadResp UploadResponse
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&uploadResp))
+	require.Equal(t, 1, uploadResp.Uploaded)
+	assert.Equal(t, 0, uploadResp.Failed)
+	finalName := uploadResp.Results[0].FinalName
+
+	// Step 3: List dc9 directory — verify file appears.
+	listReq, err := http.NewRequest(http.MethodGet,
+		ts.URL+RouteFiles+"?"+QueryParamPath+"=dc9", nil)
+	require.NoError(t, err)
+	listReq.AddCookie(cookie)
+	listReq.Header.Set(HeaderAccept, ContentTypeJSON)
+	listResp, err := client.Do(listReq)
+	require.NoError(t, err)
+	defer listResp.Body.Close()
+	require.Equal(t, http.StatusOK, listResp.StatusCode)
+
+	var entries []FileEntry
+	require.NoError(t, json.NewDecoder(listResp.Body).Decode(&entries))
+	found := false
+	for _, e := range entries {
+		if e.Name == finalName {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "uploaded file %q should appear in dc9 listing", finalName)
+
+	// Step 4: Download from dc9.
+	dlReq, err := http.NewRequest(http.MethodGet,
+		ts.URL+RouteFilesDownload+"?"+QueryParamPath+"="+url.QueryEscape("dc9/"+finalName), nil)
+	require.NoError(t, err)
+	dlReq.AddCookie(cookie)
+	dlResp, err := client.Do(dlReq)
+	require.NoError(t, err)
+	defer dlResp.Body.Close()
+	require.Equal(t, http.StatusOK, dlResp.StatusCode)
+
+	dlBody, err := io.ReadAll(dlResp.Body)
+	require.NoError(t, err)
+	assert.Equal(t, string(uploadContent), string(dlBody))
+
+	// Step 5: Verify audit log has all 3 actions.
+	require.NoError(t, srv.Shutdown(t.Context()))
+
+	auditData, err := os.ReadFile(cfg.Dropper.AuditLogPath)
+	require.NoError(t, err)
+	lines := strings.Split(strings.TrimSpace(string(auditData)), "\n")
+	require.GreaterOrEqual(t, len(lines), 3, "audit log should have at least 3 entries")
+
+	actions := make(map[string]bool)
+	for _, line := range lines {
+		var entry AuditEntry
+		require.NoError(t, json.Unmarshal([]byte(line), &entry))
+		actions[entry.Action] = true
+	}
+	assert.True(t, actions[AuditActionUpload], "audit should contain upload")
+	assert.True(t, actions[AuditActionDownload], "audit should contain download")
+	assert.True(t, actions[AuditActionMkdir], "audit should contain mkdir")
+}
+
+func TestServer_Upload_ExtensionRejected_FullCycle(t *testing.T) {
+	initTestVersion(t)
+	cfg := testConfig(t)
+	cfg.Dropper.AllowedExtensions = []string{".txt", ".pdf"}
+
+	srv, err := NewServer(cfg, testLogger(), nil, testTemplateFS())
+	require.NoError(t, err)
+
+	ts := httptest.NewServer(srv.Router())
+	defer ts.Close()
+
+	cookie := loginAndGetCookie(t, ts.URL, cfg.Dropper.Secret)
+
+	// Upload .exe — should be rejected.
+	resp := serverMultipartUpload(t, ts.URL, cookie, ".", map[string][]byte{
+		"malware.exe": []byte("evil payload"),
+	})
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode) // Batch response is 200 with failure details.
+
+	var uploadResp UploadResponse
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&uploadResp))
+	assert.Equal(t, 0, uploadResp.Uploaded)
+	assert.Equal(t, 1, uploadResp.Failed)
+	assert.NotEmpty(t, uploadResp.Results[0].Error)
+
+	// Verify no file was created.
+	entries, err := os.ReadDir(cfg.Dropper.RootDir)
+	require.NoError(t, err)
+	for _, e := range entries {
+		assert.NotContains(t, e.Name(), "malware", "rejected file should not exist on disk")
+	}
+}
+
+func TestServer_Upload_ClipboardMode_FullCycle(t *testing.T) {
+	initTestVersion(t)
+	cfg := testConfig(t)
+	srv, err := NewServer(cfg, testLogger(), nil, testTemplateFS())
+	require.NoError(t, err)
+
+	ts := httptest.NewServer(srv.Router())
+	defer ts.Close()
+
+	cookie := loginAndGetCookie(t, ts.URL, cfg.Dropper.Secret)
+
+	// Clipboard upload: POST with ?clipboard=true.
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+	part, err := writer.CreateFormFile(FormFieldFile, "blob")
+	require.NoError(t, err)
+	_, err = part.Write([]byte("fake png data"))
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+
+	reqURL := ts.URL + RouteFilesUpload + "?" + QueryParamPath + "=.&" + QueryParamClipboard + "=" + QueryParamClipboardTrue
+	req, err := http.NewRequest(http.MethodPost, reqURL, &buf)
+	require.NoError(t, err)
+	req.Header.Set(HeaderContentType, writer.FormDataContentType())
+	req.AddCookie(cookie)
+
+	resp, err := noRedirectClient().Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var uploadResp UploadResponse
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&uploadResp))
+	require.Equal(t, 1, uploadResp.Uploaded)
+
+	// Clipboard filename should match pattern: YYYYMMDD-HHmmss_clipboard.png
+	finalName := uploadResp.Results[0].FinalName
+	assert.Contains(t, finalName, ClipboardFilenamePrefix)
+	assert.Contains(t, finalName, ClipboardFilenameExt)
+}
+
+func TestServer_ConcurrentUploads(t *testing.T) {
+	initTestVersion(t)
+	cfg := testConfig(t)
+	srv, err := NewServer(cfg, testLogger(), nil, testTemplateFS())
+	require.NoError(t, err)
+
+	ts := httptest.NewServer(srv.Router())
+	defer ts.Close()
+	t.Cleanup(func() { _ = srv.Shutdown(t.Context()) })
+
+	cookie := loginAndGetCookie(t, ts.URL, cfg.Dropper.Secret)
+
+	const goroutines = 10
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+
+	results := make([]*UploadResponse, goroutines)
+	statuses := make([]int, goroutines)
+
+	for i := range goroutines {
+		go func(n int) {
+			defer wg.Done()
+			content := []byte(fmt.Sprintf("concurrent upload %d", n))
+			filename := fmt.Sprintf("concurrent_%d.txt", n)
+			resp := serverMultipartUpload(t, ts.URL, cookie, ".", map[string][]byte{
+				filename: content,
+			})
+			defer resp.Body.Close()
+			statuses[n] = resp.StatusCode
+			var ur UploadResponse
+			if err := json.NewDecoder(resp.Body).Decode(&ur); err == nil {
+				results[n] = &ur
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	// All uploads must succeed.
+	for i, status := range statuses {
+		assert.Equal(t, http.StatusOK, status, "goroutine %d should get 200", i)
+	}
+	for i, r := range results {
+		require.NotNil(t, r, "goroutine %d should have a response", i)
+		assert.Equal(t, 1, r.Uploaded, "goroutine %d should upload 1 file", i)
+	}
+
+	// Verify audit log has all upload entries.
+	require.NoError(t, srv.Shutdown(t.Context()))
+	auditData, err := os.ReadFile(cfg.Dropper.AuditLogPath)
+	require.NoError(t, err)
+	lines := strings.Split(strings.TrimSpace(string(auditData)), "\n")
+
+	uploadCount := 0
+	for _, line := range lines {
+		var entry AuditEntry
+		require.NoError(t, json.Unmarshal([]byte(line), &entry))
+		if entry.Action == AuditActionUpload {
+			uploadCount++
+		}
+	}
+	assert.Equal(t, goroutines, uploadCount, "audit log should have %d upload entries", goroutines)
+}
+
+func TestServer_NullByteInPathParam(t *testing.T) {
+	initTestVersion(t)
+	cfg := testConfig(t)
+	srv, err := NewServer(cfg, testLogger(), nil, testTemplateFS())
+	require.NoError(t, err)
+
+	ts := httptest.NewServer(srv.Router())
+	defer ts.Close()
+
+	cookie := loginAndGetCookie(t, ts.URL, cfg.Dropper.Secret)
+	client := noRedirectClient()
+
+	// Download with null byte in path.
+	req, err := http.NewRequest(http.MethodGet,
+		ts.URL+RouteFilesDownload+"?"+QueryParamPath+"=file%00.txt", nil)
+	require.NoError(t, err)
+	req.AddCookie(cookie)
+	resp, err := client.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+}
+
+func TestServer_PathTraversal_FullCycle(t *testing.T) {
+	initTestVersion(t)
+	cfg := testConfig(t)
+	srv, err := NewServer(cfg, testLogger(), nil, testTemplateFS())
+	require.NoError(t, err)
+
+	ts := httptest.NewServer(srv.Router())
+	defer ts.Close()
+
+	cookie := loginAndGetCookie(t, ts.URL, cfg.Dropper.Secret)
+	client := noRedirectClient()
+
+	traversalPaths := []string{
+		"../etc/passwd",
+		"..%2Fetc%2Fpasswd",
+		"....//....//etc/passwd",
+		"..\\etc\\passwd",
+	}
+
+	for _, tp := range traversalPaths {
+		t.Run("download_"+tp, func(t *testing.T) {
+			req, err := http.NewRequest(http.MethodGet,
+				ts.URL+RouteFilesDownload+"?"+QueryParamPath+"="+url.QueryEscape(tp), nil)
+			require.NoError(t, err)
+			req.AddCookie(cookie)
+			resp, err := client.Do(req)
+			require.NoError(t, err)
+			defer resp.Body.Close()
+			assert.True(t, resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusNotFound,
+				"path %q should be rejected, got %d", tp, resp.StatusCode)
+		})
+	}
+}
+
+func TestServer_SecurityHeaders_AllRouteTypes(t *testing.T) {
+	initTestVersion(t)
+	cfg := testConfig(t)
+
+	testFS := fstest.MapFS{
+		"static/test.css": &fstest.MapFile{
+			Data: []byte("body { color: red; }"),
+		},
+	}
+
+	srv, err := NewServer(cfg, testLogger(), testFS, testTemplateFS())
+	require.NoError(t, err)
+
+	ts := httptest.NewServer(srv.Router())
+	defer ts.Close()
+
+	cookie := loginAndGetCookie(t, ts.URL, cfg.Dropper.Secret)
+	client := noRedirectClient()
+
+	routes := []struct {
+		name   string
+		method string
+		path   string
+		cookie bool
+	}{
+		{"healthz", http.MethodGet, RouteHealthz, false},
+		{"version", http.MethodGet, RouteVersion, false},
+		{"login_page", http.MethodGet, RouteLogin, false},
+		{"static", http.MethodGet, "/static/test.css", false},
+		{"main_page", http.MethodGet, RouteRoot, true},
+		{"files", http.MethodGet, RouteFiles + "?" + QueryParamPath + "=.", true},
+	}
+
+	for _, rt := range routes {
+		t.Run(rt.name, func(t *testing.T) {
+			req, err := http.NewRequest(rt.method, ts.URL+rt.path, nil)
+			require.NoError(t, err)
+			if rt.cookie {
+				req.AddCookie(cookie)
+			}
+			resp, err := client.Do(req)
+			require.NoError(t, err)
+			defer resp.Body.Close()
+
+			assert.Equal(t, ValueNoSniff, resp.Header.Get(HeaderXContentTypeOpts),
+				"route %s should have X-Content-Type-Options", rt.name)
+			assert.Equal(t, ValueFrameDeny, resp.Header.Get(HeaderXFrameOptions),
+				"route %s should have X-Frame-Options", rt.name)
+			assert.Equal(t, ValueCSPDefault, resp.Header.Get(HeaderCSP),
+				"route %s should have CSP", rt.name)
+		})
+	}
+}
+
+func TestServer_RequestLogging_NoLogPaths(t *testing.T) {
+	initTestVersion(t)
+	cfg := testConfig(t)
+	cfg.Dropper.Logging.NoLogPaths = []string{RouteHealthz, RouteMetrics}
+
+	// Capture log output.
+	var logBuf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelInfo}))
+
+	srv, err := NewServer(cfg, logger, nil, testTemplateFS())
+	require.NoError(t, err)
+
+	ts := httptest.NewServer(srv.Router())
+	defer ts.Close()
+
+	// Hit a no-log path.
+	resp, err := http.Get(ts.URL + RouteHealthz)
+	require.NoError(t, err)
+	resp.Body.Close()
+
+	// Hit a logged path.
+	resp, err = http.Get(ts.URL + RouteLogin)
+	require.NoError(t, err)
+	resp.Body.Close()
+
+	logOutput := logBuf.String()
+
+	// /healthz should NOT appear in request log.
+	assert.NotContains(t, logOutput, RouteHealthz,
+		"no-log path should not appear in request logs")
+	// /login should appear.
+	assert.Contains(t, logOutput, RouteLogin,
+		"normal path should appear in request logs")
 }

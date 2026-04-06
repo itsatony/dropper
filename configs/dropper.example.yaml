@@ -25,7 +25,7 @@ dropper:
     level: "info"                        # DROPPER_LOGGING_LEVEL — debug, info, warn, error
     format: "json"                       # DROPPER_LOGGING_FORMAT — json or console
     output: "stdout"                     # DROPPER_LOGGING_OUTPUT — stdout or stderr
-    no_log_paths:                        # paths excluded from request logging
+    no_log_paths:                        # DROPPER_LOGGING_NO_LOG_PATHS — paths excluded from request logging
       - "/healthz"
       - "/version"
       - "/metrics"

@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
@@ -34,6 +35,7 @@ func NewServer(cfg *Config, logger *slog.Logger, staticFS fs.FS, templateFS fs.F
 	r.Use(chiMiddleware.RealIP)
 	r.Use(MetricsMiddleware)
 	r.Use(securityHeadersMiddleware)
+	r.Use(requestLoggingMiddleware(cfg.Dropper.Logging.NoLogPaths, logger))
 
 	// Create audit logger.
 	auditLogger, err := NewAuditLogger(cfg.Dropper.AuditLogPath, logger)
@@ -154,4 +156,45 @@ func securityHeadersMiddleware(next http.Handler) http.Handler {
 		w.Header().Set(HeaderCSP, ValueCSPDefault)
 		next.ServeHTTP(w, r)
 	})
+}
+
+// statusRecorder wraps http.ResponseWriter to capture the status code.
+type statusRecorder struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+func (sr *statusRecorder) WriteHeader(code int) {
+	sr.statusCode = code
+	sr.ResponseWriter.WriteHeader(code)
+}
+
+// requestLoggingMiddleware logs HTTP requests with method, path, status, and duration.
+// Requests to paths in noLogPaths are silently skipped.
+func requestLoggingMiddleware(noLogPaths []string, logger *slog.Logger) func(http.Handler) http.Handler {
+	skipSet := make(map[string]bool, len(noLogPaths))
+	for _, p := range noLogPaths {
+		skipSet[p] = true
+	}
+
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if skipSet[r.URL.Path] {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			start := time.Now()
+			rec := &statusRecorder{ResponseWriter: w, statusCode: http.StatusOK}
+			next.ServeHTTP(rec, r)
+			duration := time.Since(start)
+
+			logger.Info(LogMsgRequestCompleted,
+				LogFieldMethod, r.Method,
+				LogFieldURLPath, r.URL.Path,
+				LogFieldStatus, rec.statusCode,
+				LogFieldDuration, duration.Milliseconds(),
+			)
+		})
+	}
 }

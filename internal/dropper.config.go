@@ -2,6 +2,8 @@ package dropper
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -84,7 +86,51 @@ func LoadConfig(path string) (*Config, error) {
 			ErrMsgConfigValidation, err)
 	}
 
+	if err := validateRootDir(cfg.Dropper.RootDir); err != nil {
+		return nil, fmt.Errorf("%s: %w", ErrMsgConfigValidation, err)
+	}
+
+	if err := validateAllowedExtensions(cfg.Dropper.AllowedExtensions); err != nil {
+		return nil, fmt.Errorf("%s: %w", ErrMsgConfigValidation, err)
+	}
+
+	if err := validateAuditLogPath(cfg.Dropper.AuditLogPath); err != nil {
+		return nil, fmt.Errorf("%s: %w", ErrMsgConfigValidation, err)
+	}
+
 	return cfg, nil
+}
+
+// validateRootDir checks that the configured root directory exists and is a directory.
+func validateRootDir(rootDir string) error {
+	info, err := os.Stat(rootDir)
+	if err != nil || !info.IsDir() {
+		return fmt.Errorf("%s: %s", ErrMsgRootDirNotExist, rootDir)
+	}
+	return nil
+}
+
+// validateAllowedExtensions checks that each entry starts with a dot.
+func validateAllowedExtensions(exts []string) error {
+	for _, ext := range exts {
+		if !strings.HasPrefix(ext, ".") {
+			return fmt.Errorf("%s: %q", ErrMsgExtMissingDot, ext)
+		}
+	}
+	return nil
+}
+
+// validateAuditLogPath checks that the parent directory of the audit log path exists.
+func validateAuditLogPath(auditPath string) error {
+	if auditPath == "" {
+		return nil
+	}
+	parentDir := filepath.Dir(auditPath)
+	info, err := os.Stat(parentDir)
+	if err != nil || !info.IsDir() {
+		return fmt.Errorf("%s: %s", ErrMsgAuditLogParentNoDir, parentDir)
+	}
+	return nil
 }
 
 // bindEnvVars explicitly binds environment variable names to nested viper keys.
@@ -103,6 +149,7 @@ func bindEnvVars(v *viper.Viper) {
 	_ = v.BindEnv(ConfigKeyLoggingLevel, EnvLoggingLevel)
 	_ = v.BindEnv(ConfigKeyLoggingFormat, EnvLoggingFormat)
 	_ = v.BindEnv(ConfigKeyLoggingOutput, EnvLoggingOutput)
+	_ = v.BindEnv(ConfigKeyLoggingNoLogPaths, EnvLoggingNoLogPaths)
 }
 
 // setDefaults sets default values for all config keys.

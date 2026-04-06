@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.9.0] - 2026-04-06
+
+### Added
+- Request logging middleware with configurable `no_log_paths` exclusion
+- `DROPPER_LOGGING_NO_LOG_PATHS` env var for request log path filtering
+- Path length guard in SafePath (reject paths > 4096 chars)
+- Config validation: `root_dir` must exist, `allowed_extensions` must start with `.`, `audit_log_path` parent must exist
+- ADR-005: Symlink TOCTOU limitation documented
+- Integration tests: full mkdir+upload+list+download workflow, concurrent uploads, clipboard upload, extension rejection, null byte injection, path traversal, security headers on all route types, request logging NoLogPaths
+- Filesystem tests: path length guard, concurrent writes, sequential collision resolution, non-existent nested paths
+- Audit tests: heavy concurrent writes (10 goroutines x 100 entries)
+- Config tests: extension format validation, root dir existence, audit log path parent, NoLogPaths env var binding
+
+### Changed
+- Test coverage increased from 87.5% to 88.2% (218 tests, up from 176)
+- Config loading now validates filesystem state (root_dir, audit_log_path parent)
+- `ErrPathTooLong` sentinel error and `NewPathTooLongError()` constructor added
+
 ## [0.8.0] - 2026-04-06
 
 ### Added

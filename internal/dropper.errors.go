@@ -9,6 +9,7 @@ import (
 // Used with errors.Is() to match error categories without string comparison.
 
 var (
+	ErrPathTooLong    = errors.New(ErrMsgPathTooLong)
 	ErrPathTraversal  = errors.New(ErrMsgPathTraversal)
 	ErrPathResolution = errors.New(ErrMsgPathResolution)
 	ErrReadonlyMode   = errors.New(ErrMsgReadonlyMode)
@@ -77,6 +78,11 @@ func NewDropperError(sentinel error, statusCode int, code, safeMsg string, wrapp
 }
 
 // --- Convenience constructors ---
+
+// NewPathTooLongError returns a 400 Bad Request error for paths exceeding MaxPathLength.
+func NewPathTooLongError() *DropperError {
+	return NewDropperError(ErrPathTooLong, http.StatusBadRequest, ErrCodePathTooLong, ErrMsgPathTooLong, nil)
+}
 
 // NewPathTraversalError returns a 403 Forbidden error for path jail violations.
 func NewPathTraversalError() *DropperError {
