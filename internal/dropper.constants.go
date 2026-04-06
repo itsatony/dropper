@@ -387,7 +387,6 @@ const (
 	LogFieldIP        = "ip"
 	LogFieldSessionID = "session_id"
 	LogFieldExpired   = "expired_count"
-	LogFieldRemaining = "remaining"
 )
 
 // --- Template names ---
@@ -401,7 +400,14 @@ const (
 // --- HTTP headers (auth) ---
 
 const (
-	HeaderAccept = "Accept"
+	HeaderAccept   = "Accept"
+	HeaderLocation = "Location"
+)
+
+// --- Content types (auth) ---
+
+const (
+	ContentTypeForm = "application/x-www-form-urlencoded"
 )
 
 // --- Form field names ---

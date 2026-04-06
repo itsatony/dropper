@@ -40,10 +40,12 @@ func parseLoginTemplate(templateFS fs.FS) (*template.Template, error) {
 }
 
 // renderLoginPage renders the login page with an optional error message.
-func renderLoginPage(w http.ResponseWriter, tmpl *template.Template, errMsg string) {
+// statusCode is written after headers are set but before the body.
+func renderLoginPage(w http.ResponseWriter, tmpl *template.Template, statusCode int, errMsg string, logger *slog.Logger) {
 	w.Header().Set(HeaderContentType, ContentTypeHTML)
+	w.WriteHeader(statusCode)
 	if err := tmpl.ExecuteTemplate(w, TemplateLayout, loginData{Error: errMsg}); err != nil {
-		slog.Error(ErrMsgTemplateRender, LogFieldError, err)
+		logger.Error(ErrMsgTemplateRender, LogFieldError, err)
 	}
 }
 
@@ -96,7 +98,7 @@ func HandleLoginPage(templateFS fs.FS, logger *slog.Logger) (http.HandlerFunc, e
 	}
 
 	return func(w http.ResponseWriter, r *http.Request) {
-		renderLoginPage(w, tmpl, "")
+		renderLoginPage(w, tmpl, http.StatusOK, "", logger)
 	}, nil
 }
 
@@ -118,15 +120,13 @@ func HandleLogin(store *SessionStore, configSecret string, limiter *RateLimiter,
 				RespondError(w, http.StatusTooManyRequests, ErrCodeTooManyReqs, ErrMsgRateLimitExceeded)
 				return
 			}
-			w.WriteHeader(http.StatusTooManyRequests)
-			renderLoginPage(w, tmpl, ErrMsgRateLimitExceeded)
+			renderLoginPage(w, tmpl, http.StatusTooManyRequests, ErrMsgRateLimitExceeded, logger)
 			return
 		}
 
 		if err := r.ParseForm(); err != nil {
 			logger.Warn(LogMsgLoginFailed, LogFieldIP, ip, LogFieldError, err)
-			w.WriteHeader(http.StatusBadRequest)
-			renderLoginPage(w, tmpl, ErrMsgInvalidCredential)
+			renderLoginPage(w, tmpl, http.StatusBadRequest, ErrMsgInvalidCredential, logger)
 			return
 		}
 
@@ -135,7 +135,7 @@ func HandleLogin(store *SessionStore, configSecret string, limiter *RateLimiter,
 		// Constant-time comparison to prevent timing attacks.
 		if subtle.ConstantTimeCompare([]byte(inputSecret), []byte(configSecret)) != 1 {
 			logger.Warn(LogMsgLoginFailed, LogFieldIP, ip)
-			renderLoginPage(w, tmpl, ErrMsgInvalidCredential)
+			renderLoginPage(w, tmpl, http.StatusUnauthorized, ErrMsgInvalidCredential, logger)
 			return
 		}
 

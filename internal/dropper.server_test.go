@@ -237,7 +237,7 @@ func TestServer_LoginLogoutFlow(t *testing.T) {
 	// Step 1: POST /login with correct secret -> 303 + session cookie.
 	form := url.Values{}
 	form.Set(FormFieldLoginInput, cfg.Dropper.Secret)
-	resp, err := client.Post(ts.URL+RouteLogin, "application/x-www-form-urlencoded", strings.NewReader(form.Encode()))
+	resp, err := client.Post(ts.URL+RouteLogin, ContentTypeForm, strings.NewReader(form.Encode()))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
@@ -262,7 +262,7 @@ func TestServer_LoginLogoutFlow(t *testing.T) {
 	defer resp2.Body.Close()
 
 	assert.Equal(t, http.StatusSeeOther, resp2.StatusCode)
-	assert.Equal(t, RouteLogin, resp2.Header.Get("Location"))
+	assert.Equal(t, RouteLogin, resp2.Header.Get(HeaderLocation))
 
 	// Step 3: POST /logout with the old cookie -> still redirects (session deleted).
 	logoutReq2, err := http.NewRequest(http.MethodPost, ts.URL+RouteLogout, nil)
@@ -289,12 +289,12 @@ func TestServer_UnauthenticatedRedirect(t *testing.T) {
 	client := noRedirectClient()
 
 	// POST /logout without cookie should redirect to login.
-	resp, err := client.Post(ts.URL+RouteLogout, "application/x-www-form-urlencoded", nil)
+	resp, err := client.Post(ts.URL+RouteLogout, ContentTypeForm, nil)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
 	assert.Equal(t, http.StatusSeeOther, resp.StatusCode)
-	assert.Equal(t, RouteLogin, resp.Header.Get("Location"))
+	assert.Equal(t, RouteLogin, resp.Header.Get(HeaderLocation))
 }
 
 func TestServer_PublicRoutesNoAuth(t *testing.T) {
@@ -334,7 +334,7 @@ func TestServer_LoginRateLimiting(t *testing.T) {
 	for range cfg.Dropper.RateLimitLogin {
 		form := url.Values{}
 		form.Set(FormFieldLoginInput, "wrong-secret-attempt")
-		resp, err := client.Post(ts.URL+RouteLogin, "application/x-www-form-urlencoded", strings.NewReader(form.Encode()))
+		resp, err := client.Post(ts.URL+RouteLogin, ContentTypeForm, strings.NewReader(form.Encode()))
 		require.NoError(t, err)
 		resp.Body.Close()
 	}
@@ -342,7 +342,7 @@ func TestServer_LoginRateLimiting(t *testing.T) {
 	// Next attempt should be rate limited.
 	form := url.Values{}
 	form.Set(FormFieldLoginInput, "wrong-secret-attempt")
-	resp, err := client.Post(ts.URL+RouteLogin, "application/x-www-form-urlencoded", strings.NewReader(form.Encode()))
+	resp, err := client.Post(ts.URL+RouteLogin, ContentTypeForm, strings.NewReader(form.Encode()))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 

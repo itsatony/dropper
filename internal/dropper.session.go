@@ -93,15 +93,16 @@ func (s *SessionStore) Create() (string, error) {
 // Takes a write lock because it always mutates LastAccessed on success.
 func (s *SessionStore) Get(token string) *Session {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	session, ok := s.sessions[token]
 	if !ok {
+		s.mu.Unlock()
 		return nil
 	}
 
 	if time.Now().After(session.ExpiresAt) {
 		delete(s.sessions, token)
+		s.mu.Unlock()
 		s.logger.Debug(LogMsgSessionExpired,
 			slog.String(LogFieldSessionID, sessionTokenPrefix(token)),
 		)
@@ -109,6 +110,7 @@ func (s *SessionStore) Get(token string) *Session {
 	}
 
 	session.LastAccessed = time.Now()
+	s.mu.Unlock()
 	return session
 }
 

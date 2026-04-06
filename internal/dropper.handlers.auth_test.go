@@ -93,14 +93,14 @@ func TestHandleLogin_CorrectSecret(t *testing.T) {
 	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost, RouteLogin, loginFormBody(testAuthSecret))
-	req.Header.Set(HeaderContentType, "application/x-www-form-urlencoded")
+	req.Header.Set(HeaderContentType, ContentTypeForm)
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)
 
 	// Should redirect to / with 303.
 	assert.Equal(t, http.StatusSeeOther, rec.Code)
-	assert.Equal(t, RouteRoot, rec.Header().Get("Location"))
+	assert.Equal(t, RouteRoot, rec.Header().Get(HeaderLocation))
 
 	// Should set a session cookie.
 	cookies := rec.Result().Cookies()
@@ -129,13 +129,13 @@ func TestHandleLogin_WrongSecret(t *testing.T) {
 	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost, RouteLogin, loginFormBody("wrong-secret-value"))
-	req.Header.Set(HeaderContentType, "application/x-www-form-urlencoded")
+	req.Header.Set(HeaderContentType, ContentTypeForm)
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)
 
-	// Should re-render login page (200) with error.
-	assert.Equal(t, http.StatusOK, rec.Code)
+	// Should re-render login page with 401 and error message.
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
 	body := rec.Body.String()
 	assert.Contains(t, body, ErrMsgInvalidCredential)
 
@@ -151,12 +151,12 @@ func TestHandleLogin_EmptySecret(t *testing.T) {
 	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost, RouteLogin, loginFormBody(""))
-	req.Header.Set(HeaderContentType, "application/x-www-form-urlencoded")
+	req.Header.Set(HeaderContentType, ContentTypeForm)
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)
 
-	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
 	assert.Contains(t, rec.Body.String(), ErrMsgInvalidCredential)
 }
 
@@ -169,7 +169,7 @@ func TestHandleLogin_RateLimited_HTML(t *testing.T) {
 	// Exhaust the rate limit.
 	for range DefaultRateLimitLogin {
 		req := httptest.NewRequest(http.MethodPost, RouteLogin, loginFormBody("wrong"))
-		req.Header.Set(HeaderContentType, "application/x-www-form-urlencoded")
+		req.Header.Set(HeaderContentType, ContentTypeForm)
 		req.RemoteAddr = "10.0.0.1:12345"
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
@@ -177,7 +177,7 @@ func TestHandleLogin_RateLimited_HTML(t *testing.T) {
 
 	// Next request should be rate limited.
 	req := httptest.NewRequest(http.MethodPost, RouteLogin, loginFormBody("wrong"))
-	req.Header.Set(HeaderContentType, "application/x-www-form-urlencoded")
+	req.Header.Set(HeaderContentType, ContentTypeForm)
 	req.RemoteAddr = "10.0.0.1:12345"
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -195,7 +195,7 @@ func TestHandleLogin_RateLimited_JSON(t *testing.T) {
 	// Exhaust the rate limit.
 	for range DefaultRateLimitLogin {
 		req := httptest.NewRequest(http.MethodPost, RouteLogin, loginFormBody("wrong"))
-		req.Header.Set(HeaderContentType, "application/x-www-form-urlencoded")
+		req.Header.Set(HeaderContentType, ContentTypeForm)
 		req.RemoteAddr = "10.0.0.1:12345"
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
@@ -203,7 +203,7 @@ func TestHandleLogin_RateLimited_JSON(t *testing.T) {
 
 	// API request should get JSON 429.
 	req := httptest.NewRequest(http.MethodPost, RouteLogin, loginFormBody("wrong"))
-	req.Header.Set(HeaderContentType, "application/x-www-form-urlencoded")
+	req.Header.Set(HeaderContentType, ContentTypeForm)
 	req.Header.Set(HeaderAccept, ContentTypeJSON)
 	req.RemoteAddr = "10.0.0.1:12345"
 	rec := httptest.NewRecorder()
@@ -226,7 +226,7 @@ func TestHandleLogin_RateLimitRecovers(t *testing.T) {
 	// Exhaust rate limit.
 	for range DefaultRateLimitLogin {
 		req := httptest.NewRequest(http.MethodPost, RouteLogin, loginFormBody("wrong"))
-		req.Header.Set(HeaderContentType, "application/x-www-form-urlencoded")
+		req.Header.Set(HeaderContentType, ContentTypeForm)
 		req.RemoteAddr = "10.0.0.2:12345"
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
@@ -237,7 +237,7 @@ func TestHandleLogin_RateLimitRecovers(t *testing.T) {
 
 	// Should succeed now.
 	req := httptest.NewRequest(http.MethodPost, RouteLogin, loginFormBody(testAuthSecret))
-	req.Header.Set(HeaderContentType, "application/x-www-form-urlencoded")
+	req.Header.Set(HeaderContentType, ContentTypeForm)
 	req.RemoteAddr = "10.0.0.2:12345"
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -262,7 +262,7 @@ func TestHandleLogout_ValidSession(t *testing.T) {
 
 	// Should redirect to /login.
 	assert.Equal(t, http.StatusSeeOther, rec.Code)
-	assert.Equal(t, RouteLogin, rec.Header().Get("Location"))
+	assert.Equal(t, RouteLogin, rec.Header().Get(HeaderLocation))
 
 	// Cookie should be cleared.
 	var clearCookie *http.Cookie
@@ -290,7 +290,7 @@ func TestHandleLogout_NoSession(t *testing.T) {
 
 	// Should still redirect gracefully.
 	assert.Equal(t, http.StatusSeeOther, rec.Code)
-	assert.Equal(t, RouteLogin, rec.Header().Get("Location"))
+	assert.Equal(t, RouteLogin, rec.Header().Get(HeaderLocation))
 }
 
 // --- SessionMiddleware tests ---
@@ -334,7 +334,7 @@ func TestSessionMiddleware_NoCookie_Browser(t *testing.T) {
 
 	// Browser should be redirected.
 	assert.Equal(t, http.StatusSeeOther, rec.Code)
-	assert.Equal(t, RouteLogin, rec.Header().Get("Location"))
+	assert.Equal(t, RouteLogin, rec.Header().Get(HeaderLocation))
 }
 
 func TestSessionMiddleware_NoCookie_JSON(t *testing.T) {

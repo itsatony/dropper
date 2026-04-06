@@ -217,3 +217,22 @@ func TestGenerateToken(t *testing.T) {
 
 	assert.NotEqual(t, token1, token2, "two generated tokens must differ")
 }
+
+func TestSessionTokenPrefix(t *testing.T) {
+	tests := []struct {
+		name     string
+		token    string
+		expected string
+	}{
+		{"normal token", "abcdef1234567890abcdef", "abcdef12"},
+		{"exactly prefix length", "abcdef12", "abcdef12"},
+		{"shorter than prefix", "abc", "abc"},
+		{"empty token", "", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, sessionTokenPrefix(tt.token))
+		})
+	}
+}
