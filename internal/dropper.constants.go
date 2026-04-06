@@ -144,18 +144,30 @@ const (
 	HeaderXContentTypeOpts   = "X-Content-Type-Options"
 	HeaderXFrameOptions      = "X-Frame-Options"
 	HeaderCSP                = "Content-Security-Policy"
+	HeaderReferrerPolicy     = "Referrer-Policy"
+	HeaderPermissionsPolicy  = "Permissions-Policy"
+	HeaderXPermittedCDP      = "X-Permitted-Cross-Domain-Policies"
+	HeaderOrigin             = "Origin"
+	HeaderReferer            = "Referer"
 )
 
 // --- Header values ---
 
 const (
-	ContentTypeJSON          = "application/json"
-	ContentTypeHTML          = "text/html; charset=utf-8"
-	ValueNoSniff             = "nosniff"
-	ValueFrameDeny           = "DENY"
+	ContentTypeJSON = "application/json"
+	ContentTypeHTML = "text/html; charset=utf-8"
+	ValueNoSniff    = "nosniff"
+	ValueFrameDeny  = "DENY"
+	// ValueCSPDefault includes 'unsafe-inline' for style-src because the disk usage bar
+	// and upload progress bar require dynamic inline style="width: X%" attributes.
+	// This is acceptable: default-src 'self' blocks loading external resources, limiting
+	// CSS injection attack vectors to cosmetic changes only.
 	ValueCSPDefault          = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'"
 	ContentDispositionFormat = `attachment; filename="%s"`
 	QueryParamClipboardTrue  = "true"
+	ValueReferrerPolicy      = "strict-origin-when-cross-origin"
+	ValuePermissionsPolicy   = "camera=(), microphone=(), geolocation=()"
+	ValueXPermittedCDP       = "none"
 )
 
 // --- Log messages ---
@@ -506,6 +518,39 @@ const (
 	ErrMsgTokenGeneration   = "failed to generate session token"
 	ErrMsgTemplateRender    = "failed to render template"
 	ErrMsgTemplateParse     = "failed to parse templates"
+)
+
+// --- CSRF error codes ---
+
+const (
+	ErrCodeCSRF = "csrf_rejected"
+)
+
+// --- CSRF error messages ---
+
+const (
+	ErrMsgCSRFOriginMismatch = "request origin does not match server host"
+)
+
+// --- CSRF log messages ---
+
+const (
+	LogMsgCSRFRejected = "CSRF origin validation failed"
+)
+
+// --- CSRF log field names ---
+
+const (
+	LogFieldOrigin       = "origin"
+	LogFieldExpectedHost = "expected_host"
+)
+
+// --- CSRF safe HTTP methods ---
+
+const (
+	MethodGet     = "GET"
+	MethodHead    = "HEAD"
+	MethodOptions = "OPTIONS"
 )
 
 // --- File browsing log messages ---

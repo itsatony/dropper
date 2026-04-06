@@ -74,3 +74,19 @@
 - Deployments should restrict write access to the data volume to the dropper process
 - Container deployments with dedicated volumes are inherently protected (no other process modifying symlinks)
 - Documented here for transparency; standard practice across Go path jail implementations
+
+## ADR-006: CSRF Protection Strategy
+
+**Date:** 2026-04-06
+**Status:** Accepted
+
+**Context:** POST endpoints (login, logout, upload, mkdir) accept session cookies. While `SameSite=Strict` on session cookies prevents cross-site cookie attachment in modern browsers, defense-in-depth recommends an additional CSRF mitigation. Two approaches were considered: (a) synchronizer token pattern (CSRF tokens embedded in forms) and (b) Origin/Referer header validation.
+
+**Decision:** Use Origin/Referer header validation middleware (OWASP "Verifying Origin with Standard Headers" approach). SameSite=Strict is the primary defense; Origin validation is defense-in-depth. The middleware is lenient when neither Origin nor Referer is present — browsers always send Origin on POST, so missing headers indicate CLI tools, API clients, or privacy proxies.
+
+**Consequences:**
+- No CSRF tokens needed in forms or JavaScript — simpler implementation, no template changes
+- Browsers are fully protected: cross-origin POSTs always include an Origin header that will mismatch
+- CLI tools (curl, API scripts) work without modification — they don't send Origin
+- Comparison is host:port only (scheme-agnostic) to support reverse proxy TLS termination
+- Synchronizer tokens would provide stronger protection at the cost of template complexity and state management; accepted trade-off given SameSite=Strict as the primary defense

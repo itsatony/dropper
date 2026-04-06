@@ -118,3 +118,16 @@ Each cycle is a coherent, testable increment.
 - DC-10 tests: 20+ new tests (unit, handler, integration)
 - Coverage: 88.1% aggregate on internal/
 - **Version:** 0.10.0
+
+## Cycle 11 — Full Polish: CSRF, Security Headers, E2E Expansion (DONE)
+- CSRF protection middleware (`dropper.csrf.go`): Origin/Referer validation on state-changing methods
+- Defense-in-depth design: SameSite=Strict is primary, Origin validation catches cross-origin browser attacks
+- Lenient for missing headers (accommodates curl, API clients, privacy proxies)
+- Host:port comparison only (scheme-agnostic for reverse proxy deployments)
+- Additional security headers: `Referrer-Policy`, `Permissions-Policy`, `X-Permitted-Cross-Domain-Policies`
+- CSP `'unsafe-inline'` for styles documented with rationale
+- E2E smoke tests expanded: file upload, JSON listing, download, mkdir, security headers, CSRF rejection, readonly mode, extension filtering
+- Container restart helper for multi-config E2E scenarios
+- ADR-006: CSRF approach decision record
+- Coverage: 88.5% aggregate on internal/
+- **Version:** 0.11.0

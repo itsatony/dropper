@@ -36,6 +36,7 @@ func NewServer(cfg *Config, logger *slog.Logger, staticFS fs.FS, templateFS fs.F
 	r.Use(MetricsMiddleware)
 	r.Use(securityHeadersMiddleware)
 	r.Use(requestLoggingMiddleware(cfg.Dropper.Logging.NoLogPaths, logger))
+	r.Use(CSRFMiddleware(logger))
 
 	// Create audit logger.
 	auditLogger, err := NewAuditLogger(cfg.Dropper.AuditLogPath, logger)
@@ -154,6 +155,9 @@ func securityHeadersMiddleware(next http.Handler) http.Handler {
 		w.Header().Set(HeaderXContentTypeOpts, ValueNoSniff)
 		w.Header().Set(HeaderXFrameOptions, ValueFrameDeny)
 		w.Header().Set(HeaderCSP, ValueCSPDefault)
+		w.Header().Set(HeaderReferrerPolicy, ValueReferrerPolicy)
+		w.Header().Set(HeaderPermissionsPolicy, ValuePermissionsPolicy)
+		w.Header().Set(HeaderXPermittedCDP, ValueXPermittedCDP)
 		next.ServeHTTP(w, r)
 	})
 }

@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.11.0] - 2026-04-06
+
+### Added
+- CSRF protection middleware: Origin/Referer validation on state-changing requests (POST, PUT, DELETE, PATCH)
+- `Referrer-Policy: strict-origin-when-cross-origin` security header
+- `Permissions-Policy: camera=(), microphone=(), geolocation=()` security header
+- `X-Permitted-Cross-Domain-Policies: none` security header
+- `dropper.csrf.go` — CSRF middleware with host:port comparison (scheme-agnostic)
+- `ErrCSRFRejected` sentinel error and `NewCSRFError()` constructor
+- CSRF constants: `HeaderOrigin`, `HeaderReferer`, `ErrCodeCSRF`, safe method constants
+- ADR-006: CSRF approach documentation (SameSite=Strict primary, Origin validation defense-in-depth)
+- E2E smoke tests expanded from 9 to 25+ assertions: file upload, download, browse, mkdir, security headers, CSRF rejection, readonly mode enforcement, extension filtering
+- Container restart helper in smoke test for multi-config E2E scenarios
+- CSRF middleware unit tests (15 tests: safe methods, matching/mismatched Origin/Referer, lenient missing headers, port mismatch)
+- `extractHostFromURL` unit tests (8 cases)
+
+### Changed
+- `securityHeadersMiddleware` extended with 3 additional security headers (6 total)
+- Smoke test POST requests include `Origin` header for CSRF compliance
+- CSP `'unsafe-inline'` for styles documented with rationale in constants
+
 ## [0.10.0] - 2026-04-06
 
 ### Added

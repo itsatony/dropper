@@ -26,6 +26,7 @@ var (
 	ErrRenameFile     = errors.New(ErrMsgRenameFile)
 	ErrFileStat       = errors.New(ErrMsgFileStat)
 	ErrInvalidRelPath = errors.New(ErrMsgInvalidRelPath)
+	ErrCSRFRejected   = errors.New(ErrMsgCSRFOriginMismatch)
 )
 
 // DropperError is a typed error that carries HTTP response metadata alongside
@@ -163,6 +164,11 @@ func NewFileStatError(wrapped error) *DropperError {
 // NewInvalidRelPathError returns a 400 Bad Request error for invalid relative paths in directory uploads.
 func NewInvalidRelPathError() *DropperError {
 	return NewDropperError(ErrInvalidRelPath, http.StatusBadRequest, ErrCodeInvalidRelPath, ErrMsgInvalidRelPath, nil)
+}
+
+// NewCSRFError returns a 403 Forbidden error when CSRF origin validation fails.
+func NewCSRFError() *DropperError {
+	return NewDropperError(ErrCSRFRejected, http.StatusForbidden, ErrCodeCSRF, ErrMsgCSRFOriginMismatch, nil)
 }
 
 // MapDropperError extracts HTTP response fields from a DropperError.

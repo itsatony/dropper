@@ -187,6 +187,9 @@ func TestServer_SecurityHeaders(t *testing.T) {
 	assert.Equal(t, ValueNoSniff, resp.Header.Get(HeaderXContentTypeOpts))
 	assert.Equal(t, ValueFrameDeny, resp.Header.Get(HeaderXFrameOptions))
 	assert.Equal(t, ValueCSPDefault, resp.Header.Get(HeaderCSP))
+	assert.Equal(t, ValueReferrerPolicy, resp.Header.Get(HeaderReferrerPolicy))
+	assert.Equal(t, ValuePermissionsPolicy, resp.Header.Get(HeaderPermissionsPolicy))
+	assert.Equal(t, ValueXPermittedCDP, resp.Header.Get(HeaderXPermittedCDP))
 }
 
 func TestServer_NotFound(t *testing.T) {
@@ -1467,6 +1470,12 @@ func TestServer_SecurityHeaders_AllRouteTypes(t *testing.T) {
 				"route %s should have X-Frame-Options", rt.name)
 			assert.Equal(t, ValueCSPDefault, resp.Header.Get(HeaderCSP),
 				"route %s should have CSP", rt.name)
+			assert.Equal(t, ValueReferrerPolicy, resp.Header.Get(HeaderReferrerPolicy),
+				"route %s should have Referrer-Policy", rt.name)
+			assert.Equal(t, ValuePermissionsPolicy, resp.Header.Get(HeaderPermissionsPolicy),
+				"route %s should have Permissions-Policy", rt.name)
+			assert.Equal(t, ValueXPermittedCDP, resp.Header.Get(HeaderXPermittedCDP),
+				"route %s should have X-Permitted-Cross-Domain-Policies", rt.name)
 		})
 	}
 }

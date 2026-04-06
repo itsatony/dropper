@@ -203,7 +203,8 @@ static/                      -- vendored HTMX, CSS, JS
 - **Path traversal prevention:** Every client-supplied path goes through Clean, Abs, HasPrefix, EvalSymlinks, then re-check. Rejection returns 403 with zero path info in the response.
 - **Upload safety:** Temp dir write, then rename into place. Filename sanitized to `[a-zA-Z0-9_.-]`. Extension whitelist checked before any disk write. `http.MaxBytesReader` enforced.
 - **Authentication:** `crypto/subtle.ConstantTimeCompare` for secret verification. `crypto/rand` for 32-byte session tokens. Rate-limited login.
-- **Security headers:** `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'`.
+- **CSRF protection:** Origin/Referer validation on all state-changing requests (defense-in-depth on top of `SameSite=Strict` cookies).
+- **Security headers:** `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Content-Security-Policy`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy`, `X-Permitted-Cross-Domain-Policies: none`.
 
 ---
 

@@ -30,10 +30,14 @@ green() { printf '\033[0;32m  PASS: %s\033[0m\n' "$*"; }
 bold()  { printf '\033[1m%s\033[0m\n' "$*"; }
 
 # --- Cleanup on exit ---
+TEMP_DATA=""
 cleanup() {
     bold "Cleaning up..."
     ${RUNTIME} stop "${CONTAINER_NAME}" 2>/dev/null || true
     ${RUNTIME} rm -f "${CONTAINER_NAME}" 2>/dev/null || true
+    if [ -n "${TEMP_DATA}" ] && [ -d "${TEMP_DATA}" ]; then
+        rm -rf "${TEMP_DATA}"
+    fi
 }
 trap cleanup EXIT
 
@@ -58,6 +62,75 @@ assert_status() {
         red "${label} — expected status ${expected}, got ${status}"
         FAIL=$((FAIL + 1))
     fi
+}
+
+assert_header_present() {
+    local label="$1" headers="$2" header_name="$3"
+    if echo "${headers}" | grep -qi "^${header_name}:"; then
+        green "${label}"
+        PASS=$((PASS + 1))
+    else
+        red "${label} — header '${header_name}' not found in response"
+        FAIL=$((FAIL + 1))
+    fi
+}
+
+# --- Container management ---
+start_container() {
+    local extra_env="${1:-}"
+
+    TEMP_DATA="$(mktemp -d)"
+
+    local run_args=(
+        -d
+        --name "${CONTAINER_NAME}"
+        -p "${TEST_PORT}:8080"
+        -v "${TEMP_DATA}:/data"
+        -e "DROPPER_SECRET=${SMOKE_AUTH}"
+        -e "DROPPER_AUDIT_LOG_PATH=/dev/null"
+        -e "DROPPER_LOGGING_FORMAT=console"
+    )
+
+    # Add any extra env vars passed as arguments.
+    if [ -n "${extra_env}" ]; then
+        while IFS= read -r env_line; do
+            [ -n "${env_line}" ] && run_args+=(-e "${env_line}")
+        done <<< "${extra_env}"
+    fi
+
+    run_args+=("${DOCKER_IMAGE}:${DOCKER_TAG}")
+
+    ${RUNTIME} run "${run_args[@]}" >/dev/null
+
+    # Wait for container to be ready.
+    local elapsed=0
+    while [ ${elapsed} -lt ${MAX_WAIT_SECONDS} ]; do
+        if curl -sf "${BASE_URL}/healthz" >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep ${WAIT_INTERVAL}
+        elapsed=$((elapsed + WAIT_INTERVAL))
+    done
+
+    red "Container did not become ready within ${MAX_WAIT_SECONDS}s"
+    echo "Container logs:"
+    ${RUNTIME} logs "${CONTAINER_NAME}" 2>&1 | tail -20
+    return 1
+}
+
+stop_container() {
+    ${RUNTIME} stop "${CONTAINER_NAME}" 2>/dev/null || true
+    ${RUNTIME} rm -f "${CONTAINER_NAME}" 2>/dev/null || true
+    if [ -n "${TEMP_DATA}" ] && [ -d "${TEMP_DATA}" ]; then
+        rm -rf "${TEMP_DATA}"
+    fi
+    TEMP_DATA=""
+}
+
+restart_container() {
+    local extra_env="${1:-}"
+    stop_container
+    start_container "${extra_env}"
 }
 
 # --- Detect container runtime ---
@@ -91,42 +164,17 @@ ${RUNTIME} build -q \
     -t "${DOCKER_IMAGE}:${DOCKER_TAG}" . >/dev/null
 
 bold "Starting container ${CONTAINER_NAME} on port ${TEST_PORT}..."
+start_container
 
-# Create temp data dir
-TEMP_DATA="$(mktemp -d)"
-trap 'cleanup; rm -rf "${TEMP_DATA}"' EXIT
-
-${RUNTIME} run -d \
-    --name "${CONTAINER_NAME}" \
-    -p "${TEST_PORT}:8080" \
-    -v "${TEMP_DATA}:/data" \
-    -e "DROPPER_SECRET=${SMOKE_AUTH}" \
-    -e "DROPPER_AUDIT_LOG_PATH=/dev/null" \
-    -e "DROPPER_LOGGING_FORMAT=console" \
-    "${DOCKER_IMAGE}:${DOCKER_TAG}" >/dev/null
-
-# --- Wait for container to be ready ---
-bold "Waiting for container (max ${MAX_WAIT_SECONDS}s)..."
-elapsed=0
-while [ ${elapsed} -lt ${MAX_WAIT_SECONDS} ]; do
-    if curl -sf "${BASE_URL}/healthz" >/dev/null 2>&1; then
-        green "Container ready after ${elapsed}s"
-        break
-    fi
-    sleep ${WAIT_INTERVAL}
-    elapsed=$((elapsed + WAIT_INTERVAL))
-done
-
-if [ ${elapsed} -ge ${MAX_WAIT_SECONDS} ]; then
-    red "Container did not become ready within ${MAX_WAIT_SECONDS}s"
-    echo "Container logs:"
-    ${RUNTIME} logs "${CONTAINER_NAME}" 2>&1 | tail -20
-    exit 1
-fi
+green "Container ready"
 
 echo ""
 bold "Running tests..."
 echo ""
+
+# ============================================================
+# Part 1: Health, version, auth flow (tests 1-9)
+# ============================================================
 
 # --- Test 1: GET /healthz returns status ok ---
 response="$(curl -sf "${BASE_URL}/healthz")"
@@ -149,6 +197,7 @@ login_response="$(curl -s -D - -o /dev/null \
     -X POST \
     -d "secret=${SMOKE_AUTH}" \
     -H "Content-Type: application/x-www-form-urlencoded" \
+    -H "Origin: ${BASE_URL}" \
     "${BASE_URL}/login")"
 assert_contains "POST /login sets session cookie" "${login_response}" "dropper_session="
 
@@ -173,6 +222,7 @@ status="$(curl -so /dev/null -w '%{http_code}' \
     -X POST \
     -d "secret=wrong-credential-value" \
     -H "Content-Type: application/x-www-form-urlencoded" \
+    -H "Origin: ${BASE_URL}" \
     "${BASE_URL}/login")"
 assert_status "POST /login with wrong credential returns 401" "${status}" "401"
 
@@ -181,9 +231,191 @@ if [ -n "${session_cookie}" ]; then
     status="$(curl -so /dev/null -w '%{http_code}' \
         -X POST \
         -b "${session_cookie}" \
+        -H "Origin: ${BASE_URL}" \
         "${BASE_URL}/logout")"
     assert_status "POST /logout returns 303" "${status}" "303"
 fi
+
+# Re-login for file operation tests (previous session was destroyed).
+login_response="$(curl -s -D - -o /dev/null \
+    -X POST \
+    -d "secret=${SMOKE_AUTH}" \
+    -H "Content-Type: application/x-www-form-urlencoded" \
+    -H "Origin: ${BASE_URL}" \
+    "${BASE_URL}/login")"
+session_cookie="$(echo "${login_response}" | grep -i 'set-cookie:' | grep -o 'dropper_session=[^;]*' | head -1)"
+
+# ============================================================
+# Part 2: File operations (tests 10-13)
+# ============================================================
+
+echo ""
+bold "File operation tests..."
+echo ""
+
+# --- Test 10: File upload via multipart POST ---
+UPLOAD_FILE="$(mktemp)"
+echo "smoke test content" > "${UPLOAD_FILE}"
+upload_response="$(curl -s -w '\n%{http_code}' \
+    -b "${session_cookie}" \
+    -H "Origin: ${BASE_URL}" \
+    -F "file=@${UPLOAD_FILE};filename=smoke_test.txt" \
+    "${BASE_URL}/files/upload?path=.")"
+upload_status="$(echo "${upload_response}" | tail -1)"
+upload_body="$(echo "${upload_response}" | sed '$d')"
+rm -f "${UPLOAD_FILE}"
+assert_status "POST /files/upload returns 200" "${upload_status}" "200"
+assert_contains "POST /files/upload reports 1 uploaded" "${upload_body}" '"uploaded":1'
+
+# --- Test 11: File listing via JSON ---
+list_response="$(curl -s -w '\n%{http_code}' \
+    -b "${session_cookie}" \
+    -H "Accept: application/json" \
+    "${BASE_URL}/files?path=.")"
+list_status="$(echo "${list_response}" | tail -1)"
+list_body="$(echo "${list_response}" | sed '$d')"
+assert_status "GET /files?path=. (JSON) returns 200" "${list_status}" "200"
+assert_contains "GET /files lists uploaded file" "${list_body}" 'smoke_test.txt'
+
+# --- Test 12: File download ---
+download_response="$(curl -s -D - -o /dev/null -w '%{http_code}' \
+    -b "${session_cookie}" \
+    "${BASE_URL}/files/download?path=smoke_test.txt")"
+download_status="$(echo "${download_response}" | tail -1)"
+assert_status "GET /files/download returns 200" "${download_status}" "200"
+assert_contains "GET /files/download sets Content-Disposition" "${download_response}" "attachment"
+
+# --- Test 13: Directory creation ---
+mkdir_response="$(curl -s -w '\n%{http_code}' \
+    -X POST \
+    -b "${session_cookie}" \
+    -H "Origin: ${BASE_URL}" \
+    "${BASE_URL}/files/mkdir?path=.&name=testfolder")"
+mkdir_status="$(echo "${mkdir_response}" | tail -1)"
+mkdir_body="$(echo "${mkdir_response}" | sed '$d')"
+assert_status "POST /files/mkdir returns 201" "${mkdir_status}" "201"
+assert_contains "POST /files/mkdir returns folder name" "${mkdir_body}" '"name":"testfolder"'
+
+# ============================================================
+# Part 3: Security (tests 14-15)
+# ============================================================
+
+echo ""
+bold "Security tests..."
+echo ""
+
+# --- Test 14: Security headers present ---
+headers="$(curl -sI "${BASE_URL}/healthz")"
+assert_header_present "X-Content-Type-Options header present" "${headers}" "X-Content-Type-Options"
+assert_header_present "X-Frame-Options header present" "${headers}" "X-Frame-Options"
+assert_header_present "Content-Security-Policy header present" "${headers}" "Content-Security-Policy"
+assert_header_present "Referrer-Policy header present" "${headers}" "Referrer-Policy"
+assert_header_present "Permissions-Policy header present" "${headers}" "Permissions-Policy"
+assert_header_present "X-Permitted-Cross-Domain-Policies header present" "${headers}" "X-Permitted-Cross-Domain-Policies"
+
+# --- Test 15: CSRF rejection with mismatched Origin ---
+csrf_status="$(curl -so /dev/null -w '%{http_code}' \
+    -X POST \
+    -b "${session_cookie}" \
+    -H "Origin: https://evil.example.com" \
+    -F "file=@/dev/null;filename=evil.txt" \
+    "${BASE_URL}/files/upload?path=.")"
+assert_status "POST with mismatched Origin returns 403 (CSRF)" "${csrf_status}" "403"
+
+# ============================================================
+# Part 4: Readonly mode (test 16)
+# ============================================================
+
+echo ""
+bold "Readonly mode tests..."
+echo ""
+
+# Restart container with readonly mode enabled.
+restart_container "DROPPER_READONLY=true"
+
+# Login again after restart.
+login_response="$(curl -s -D - -o /dev/null \
+    -X POST \
+    -d "secret=${SMOKE_AUTH}" \
+    -H "Content-Type: application/x-www-form-urlencoded" \
+    -H "Origin: ${BASE_URL}" \
+    "${BASE_URL}/login")"
+session_cookie="$(echo "${login_response}" | grep -i 'set-cookie:' | grep -o 'dropper_session=[^;]*' | head -1)"
+
+# Upload should be rejected in readonly mode.
+UPLOAD_FILE="$(mktemp)"
+echo "readonly test" > "${UPLOAD_FILE}"
+readonly_upload_status="$(curl -so /dev/null -w '%{http_code}' \
+    -b "${session_cookie}" \
+    -H "Origin: ${BASE_URL}" \
+    -F "file=@${UPLOAD_FILE};filename=readonly_test.txt" \
+    "${BASE_URL}/files/upload?path=.")"
+rm -f "${UPLOAD_FILE}"
+assert_status "Readonly: POST /files/upload returns 403" "${readonly_upload_status}" "403"
+
+# Mkdir should be rejected in readonly mode.
+readonly_mkdir_status="$(curl -so /dev/null -w '%{http_code}' \
+    -X POST \
+    -b "${session_cookie}" \
+    -H "Origin: ${BASE_URL}" \
+    "${BASE_URL}/files/mkdir?path=.&name=shouldfail")"
+assert_status "Readonly: POST /files/mkdir returns 403" "${readonly_mkdir_status}" "403"
+
+# Browse should still work in readonly mode.
+readonly_browse_status="$(curl -so /dev/null -w '%{http_code}' \
+    -b "${session_cookie}" \
+    -H "Accept: application/json" \
+    "${BASE_URL}/files?path=.")"
+assert_status "Readonly: GET /files returns 200" "${readonly_browse_status}" "200"
+
+# ============================================================
+# Part 5: Extension filtering (test 17)
+# ============================================================
+
+echo ""
+bold "Extension filtering tests..."
+echo ""
+
+# Restart with extension whitelist.
+restart_container "DROPPER_ALLOWED_EXTENSIONS=.txt,.md"
+
+# Login again after restart.
+login_response="$(curl -s -D - -o /dev/null \
+    -X POST \
+    -d "secret=${SMOKE_AUTH}" \
+    -H "Content-Type: application/x-www-form-urlencoded" \
+    -H "Origin: ${BASE_URL}" \
+    "${BASE_URL}/login")"
+session_cookie="$(echo "${login_response}" | grep -i 'set-cookie:' | grep -o 'dropper_session=[^;]*' | head -1)"
+
+# Upload .txt should succeed.
+TXT_FILE="$(mktemp)"
+echo "allowed extension" > "${TXT_FILE}"
+ext_txt_response="$(curl -s -w '\n%{http_code}' \
+    -b "${session_cookie}" \
+    -H "Origin: ${BASE_URL}" \
+    -F "file=@${TXT_FILE};filename=allowed.txt" \
+    "${BASE_URL}/files/upload?path=.")"
+ext_txt_status="$(echo "${ext_txt_response}" | tail -1)"
+ext_txt_body="$(echo "${ext_txt_response}" | sed '$d')"
+rm -f "${TXT_FILE}"
+assert_status "Extension filter: .txt upload returns 200" "${ext_txt_status}" "200"
+assert_contains "Extension filter: .txt upload succeeds" "${ext_txt_body}" '"uploaded":1'
+
+# Upload .exe should be rejected.
+EXE_FILE="$(mktemp)"
+echo "blocked extension" > "${EXE_FILE}"
+ext_exe_response="$(curl -s -w '\n%{http_code}' \
+    -b "${session_cookie}" \
+    -H "Origin: ${BASE_URL}" \
+    -F "file=@${EXE_FILE};filename=blocked.exe" \
+    "${BASE_URL}/files/upload?path=.")"
+ext_exe_status="$(echo "${ext_exe_response}" | tail -1)"
+ext_exe_body="$(echo "${ext_exe_response}" | sed '$d')"
+rm -f "${EXE_FILE}"
+assert_status "Extension filter: .exe upload returns 200" "${ext_exe_status}" "200"
+assert_contains "Extension filter: .exe upload reports 0 uploaded" "${ext_exe_body}" '"uploaded":0'
+assert_contains "Extension filter: .exe upload reports 1 failed" "${ext_exe_body}" '"failed":1'
 
 # --- Results ---
 echo ""
