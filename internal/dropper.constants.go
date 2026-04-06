@@ -604,10 +604,10 @@ const (
 // --- Metric names ---
 
 const (
-	MetricNameRequestsTotal   = "http_requests_total"
-	MetricNameUploadsTotal    = "uploads_total"
-	MetricNameUploadBytes     = "upload_bytes_total"
-	MetricNameErrorsTotal     = "errors_total"
+	MetricNameRequestsTotal = "http_requests_total"
+	MetricNameUploadsTotal  = "uploads_total"
+	MetricNameUploadBytes   = "upload_bytes_total"
+	MetricNameErrorsTotal   = "errors_total"
 )
 
 // --- Metric labels ---

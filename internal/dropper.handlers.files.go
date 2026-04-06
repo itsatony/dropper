@@ -434,4 +434,3 @@ func HandleUpload(cfg *DropperConfig, audit *AuditLogger, logger *slog.Logger) h
 		})
 	}
 }
-
