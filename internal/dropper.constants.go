@@ -107,6 +107,8 @@ const (
 	RouteRoot          = "/"
 	RouteFiles         = "/files"
 	RouteFilesDownload = "/files/download"
+	RouteFilesUpload   = "/files/upload"
+	RouteFilesMkdir    = "/files/mkdir"
 )
 
 // --- Query parameter names ---
@@ -115,6 +117,8 @@ const (
 	QueryParamPath      = "path"
 	QueryParamSortBy    = "sort"
 	QueryParamSortOrder = "order"
+	QueryParamName      = "name"
+	QueryParamClipboard = "clipboard"
 )
 
 // --- Default query values ---
@@ -133,20 +137,23 @@ const (
 // --- HTTP headers ---
 
 const (
-	HeaderContentType      = "Content-Type"
-	HeaderXContentTypeOpts = "X-Content-Type-Options"
-	HeaderXFrameOptions    = "X-Frame-Options"
-	HeaderCSP              = "Content-Security-Policy"
+	HeaderContentType        = "Content-Type"
+	HeaderContentDisposition = "Content-Disposition"
+	HeaderXContentTypeOpts   = "X-Content-Type-Options"
+	HeaderXFrameOptions      = "X-Frame-Options"
+	HeaderCSP                = "Content-Security-Policy"
 )
 
 // --- Header values ---
 
 const (
-	ContentTypeJSON = "application/json"
-	ContentTypeHTML = "text/html; charset=utf-8"
-	ValueNoSniff    = "nosniff"
-	ValueFrameDeny  = "DENY"
-	ValueCSPDefault = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'"
+	ContentTypeJSON          = "application/json"
+	ContentTypeHTML          = "text/html; charset=utf-8"
+	ValueNoSniff             = "nosniff"
+	ValueFrameDeny           = "DENY"
+	ValueCSPDefault          = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'"
+	ContentDispositionFormat = `attachment; filename="%s"`
+	QueryParamClipboardTrue  = "true"
 )
 
 // --- Log messages ---
@@ -246,17 +253,23 @@ const (
 	ErrMsgNotFile         = "path is not a file"
 	ErrMsgFileTooLarge    = "file exceeds maximum upload size"
 	ErrMsgFileExists      = "file already exists after collision retries"
+	ErrMsgMultipartParse  = "failed to parse multipart form"
+	ErrMsgNoFilesUploaded = "no files in upload request"
+	ErrMsgFileStat        = "failed to stat file"
+	ErrMsgBodyTooLarge    = "request body exceeds maximum size"
+	ErrMsgMissingParam    = "required parameter missing"
 )
 
 // --- Filesystem error codes ---
 
 const (
-	ErrCodeForbidden     = "forbidden"
-	ErrCodeBadRequest    = "bad_request"
-	ErrCodeNotFound      = "not_found"
-	ErrCodeReadonly      = "readonly"
-	ErrCodeExtNotAllowed = "extension_not_allowed"
-	ErrCodeFileTooLarge  = "file_too_large"
+	ErrCodeForbidden       = "forbidden"
+	ErrCodeBadRequest      = "bad_request"
+	ErrCodeNotFound        = "not_found"
+	ErrCodeReadonly        = "readonly"
+	ErrCodeExtNotAllowed   = "extension_not_allowed"
+	ErrCodeFileTooLarge    = "file_too_large"
+	ErrCodePayloadTooLarge = "payload_too_large"
 )
 
 // --- Sort fields ---
@@ -303,6 +316,12 @@ const (
 	TempFilePattern = "dropper-upload-*"
 )
 
+// --- Multipart upload ---
+
+const (
+	MaxMultipartMemory int64 = 32 << 20 // 32 MB in-memory before disk buffering
+)
+
 // --- File size formatting ---
 
 const (
@@ -337,6 +356,16 @@ const (
 	LogMsgExtRejected       = "extension rejected"
 )
 
+// --- Log messages (file handlers) ---
+
+const (
+	LogMsgUploadSuccess  = "file uploaded"
+	LogMsgUploadFailed   = "upload failed"
+	LogMsgDownloadServed = "file download served"
+	LogMsgMkdirHandler   = "directory created via handler"
+	LogMsgPasteUpload    = "clipboard paste uploaded"
+)
+
 // --- Log field names (filesystem) ---
 
 const (
@@ -346,6 +375,8 @@ const (
 	LogFieldResolvedName = "resolved_name"
 	LogFieldSize         = "size"
 	LogFieldExtension    = "extension"
+	LogFieldUploadCount  = "upload_count"
+	LogFieldFailCount    = "fail_count"
 )
 
 // --- Session / Auth ---
@@ -511,6 +542,7 @@ const (
 
 const (
 	FormFieldLoginInput = "secret"
+	FormFieldFile       = "file"
 )
 
 // --- Session token format ---

@@ -35,3 +35,24 @@ func RespondError(w http.ResponseWriter, status int, code string, message string
 		Message: message,
 	})
 }
+
+// UploadResult describes the outcome of a single file upload.
+type UploadResult struct {
+	OriginalName string `json:"original_name"`
+	FinalName    string `json:"final_name"`
+	Size         int64  `json:"size"`
+	Error        string `json:"error,omitempty"`
+}
+
+// UploadResponse is the response body for POST /files/upload.
+type UploadResponse struct {
+	Results  []UploadResult `json:"results"`
+	Uploaded int            `json:"uploaded"`
+	Failed   int            `json:"failed"`
+}
+
+// MkdirResponse is the response body for POST /files/mkdir.
+type MkdirResponse struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+}

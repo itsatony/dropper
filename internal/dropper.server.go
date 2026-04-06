@@ -87,6 +87,11 @@ func NewServer(cfg *Config, logger *slog.Logger, staticFS fs.FS, templateFS fs.F
 			r.Get(RouteRoot, HandleMainPage(ts, &cfg.Dropper, logger))
 			r.Get(RouteFiles, HandleListFiles(ts, &cfg.Dropper, logger))
 		}
+
+		// File operation routes (JSON-only, no template dependency).
+		r.Post(RouteFilesUpload, HandleUpload(&cfg.Dropper, auditLogger, logger))
+		r.Get(RouteFilesDownload, HandleDownload(&cfg.Dropper, auditLogger, logger))
+		r.Post(RouteFilesMkdir, HandleMkdir(&cfg.Dropper, auditLogger, logger))
 	})
 
 	addr := net.JoinHostPort("", strconv.Itoa(cfg.Dropper.ListenPort))

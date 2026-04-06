@@ -136,6 +136,57 @@
     return params.get("path") || ".";
   }
 
+  // --- File Upload ---
+
+  function uploadFiles(files, isClipboard) {
+    if (!files || files.length === 0) return;
+
+    var formData = new FormData();
+    for (var i = 0; i < files.length; i++) {
+      formData.append("file", files[i]);
+    }
+
+    var url =
+      "/files/upload?path=" + encodeURIComponent(getCurrentPath());
+    if (isClipboard) url += "&clipboard=true";
+
+    fetch(url, { method: "POST", body: formData })
+      .then(function (resp) {
+        return resp.json().then(function (data) {
+          return { status: resp.status, data: data };
+        });
+      })
+      .then(function (result) {
+        if (result.status !== 200) {
+          showToast(result.data.message || "Upload failed", "error");
+          return;
+        }
+        var data = result.data;
+        if (data.failed > 0) {
+          showToast(data.failed + " file(s) failed to upload", "error");
+        }
+        if (data.uploaded > 0) {
+          showToast(data.uploaded + " file(s) uploaded", "success");
+        }
+        refreshFileList();
+      })
+      .catch(function (err) {
+        showToast("Upload failed: " + err.message, "error");
+      });
+  }
+
+  function refreshFileList() {
+    if (window.htmx) {
+      var path = getCurrentPath();
+      htmx.ajax("GET", "/files?path=" + encodeURIComponent(path), {
+        target: "#file-browser",
+      });
+    }
+  }
+
+  // Expose globally for potential external use.
+  window.dropperRefresh = refreshFileList;
+
   // --- Drop Zone Visual Feedback ---
 
   function initDropzone() {
@@ -167,14 +218,21 @@
       e.preventDefault();
       counter = 0;
       dropzone.classList.remove("drag-over");
-      // Drop handler captures files; upload endpoint wired in file handler cycle.
       if (e.dataTransfer && e.dataTransfer.files.length > 0) {
-        showToast(
-          e.dataTransfer.files.length + " file(s) ready for upload",
-          "info"
-        );
+        uploadFiles(e.dataTransfer.files, false);
       }
     });
+
+    // Wire up the fallback file input.
+    var fileInput = document.getElementById("file-input");
+    if (fileInput) {
+      fileInput.addEventListener("change", function () {
+        if (fileInput.files.length > 0) {
+          uploadFiles(fileInput.files, false);
+          fileInput.value = "";
+        }
+      });
+    }
   }
 
   // --- Clipboard Paste Handler ---
@@ -231,8 +289,9 @@
 
     if (confirmBtn) {
       confirmBtn.addEventListener("click", function () {
-        // Upload endpoint wired in file handler cycle.
-        showToast("Image captured — upload endpoint pending", "info");
+        if (clipboardBlob) {
+          uploadFiles([clipboardBlob], true);
+        }
         closePreview();
       });
     }
@@ -257,12 +316,49 @@
     });
   }
 
+  // --- New Folder Button ---
+
+  function initMkdirButton() {
+    var btn = document.getElementById("mkdir-btn");
+    if (!btn) return;
+
+    btn.addEventListener("click", function () {
+      var name = prompt("Folder name:");
+      if (!name || !name.trim()) return;
+
+      var url =
+        "/files/mkdir?path=" +
+        encodeURIComponent(getCurrentPath()) +
+        "&name=" +
+        encodeURIComponent(name.trim());
+
+      fetch(url, { method: "POST" })
+        .then(function (resp) {
+          return resp.json().then(function (data) {
+            return { status: resp.status, data: data };
+          });
+        })
+        .then(function (result) {
+          if (result.status === 201) {
+            showToast("Created: " + result.data.name, "success");
+            refreshFileList();
+          } else {
+            showToast(result.data.message || "Failed to create folder", "error");
+          }
+        })
+        .catch(function (err) {
+          showToast("Failed: " + err.message, "error");
+        });
+    });
+  }
+
   // --- HTMX Event Hooks ---
 
   function initHTMXHooks() {
     document.body.addEventListener("htmx:afterSwap", function () {
       // Re-initialize components after HTMX swaps content.
       initDropzone();
+      initMkdirButton();
       renderBookmarks();
       // Save current directory.
       saveLastDir(getCurrentPath());
@@ -280,6 +376,7 @@
     initDropzone();
     initClipboardPaste();
     initBookmarkAdd();
+    initMkdirButton();
     initHTMXHooks();
     saveLastDir(getCurrentPath());
   }

@@ -1,7 +1,9 @@
 package dropper
 
 import (
+	"bytes"
 	"encoding/json"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -353,4 +355,602 @@ func TestHandleListFiles_Subdir(t *testing.T) {
 
 	body := rec.Body.String()
 	assert.Contains(t, body, "notes.txt")
+}
+
+// --- Test helpers for file handlers ---
+
+// testFileAuditLogger creates an AuditLogger writing to a temp file.
+func testFileAuditLogger(t *testing.T) (*AuditLogger, string) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "test_audit.log")
+	al, err := NewAuditLogger(path, authTestLogger())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = al.Close() })
+	return al, path
+}
+
+// createMultipartBody creates a multipart/form-data body with the given files.
+// Returns the body buffer and the content type header value.
+func createMultipartBody(t *testing.T, fieldName string, files map[string][]byte) (*bytes.Buffer, string) {
+	t.Helper()
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+	for name, content := range files {
+		part, err := writer.CreateFormFile(fieldName, name)
+		require.NoError(t, err)
+		_, err = part.Write(content)
+		require.NoError(t, err)
+	}
+	require.NoError(t, writer.Close())
+	return &buf, writer.FormDataContentType()
+}
+
+// readAuditEntries reads and parses all audit entries from the log file.
+func readAuditEntries(t *testing.T, path string) []AuditEntry {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	var entries []AuditEntry
+	for _, line := range bytes.Split(data, []byte("\n")) {
+		line = bytes.TrimSpace(line)
+		if len(line) == 0 {
+			continue
+		}
+		var entry AuditEntry
+		require.NoError(t, json.Unmarshal(line, &entry))
+		entries = append(entries, entry)
+	}
+	return entries
+}
+
+// testUploadConfig returns a DropperConfig with AllowedExtensions set.
+func testUploadConfig(t *testing.T) *DropperConfig {
+	t.Helper()
+	cfg := testDropperConfig(t)
+	cfg.MaxUploadBytes = DefaultMaxUploadBytes
+	cfg.AllowedExtensions = nil // allow all
+	return cfg
+}
+
+// --- HandleDownload tests ---
+
+func TestHandleDownload_Success(t *testing.T) {
+	cfg := testDropperConfig(t)
+	audit, _ := testFileAuditLogger(t)
+	handler := HandleDownload(cfg, audit, authTestLogger())
+
+	req := httptest.NewRequest(http.MethodGet, RouteFilesDownload+"?"+QueryParamPath+"=readme.txt", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// Verify Content-Disposition header.
+	cd := rec.Header().Get(HeaderContentDisposition)
+	assert.Contains(t, cd, "readme.txt")
+	assert.Contains(t, cd, "attachment")
+
+	// Verify body content matches the test file.
+	assert.Equal(t, "hello", rec.Body.String())
+}
+
+func TestHandleDownload_PathTraversal(t *testing.T) {
+	cfg := testDropperConfig(t)
+	audit, _ := testFileAuditLogger(t)
+	handler := HandleDownload(cfg, audit, authTestLogger())
+
+	req := httptest.NewRequest(http.MethodGet, RouteFilesDownload+"?"+QueryParamPath+"=../../etc/passwd", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+
+	var errBody ErrorBody
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&errBody))
+	assert.Equal(t, ErrCodeForbidden, errBody.Code)
+	// Must not leak path info.
+	assert.NotContains(t, errBody.Message, "etc")
+	assert.NotContains(t, errBody.Message, "passwd")
+}
+
+func TestHandleDownload_Directory(t *testing.T) {
+	cfg := testDropperConfig(t)
+	audit, _ := testFileAuditLogger(t)
+	handler := HandleDownload(cfg, audit, authTestLogger())
+
+	req := httptest.NewRequest(http.MethodGet, RouteFilesDownload+"?"+QueryParamPath+"=docs", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var errBody ErrorBody
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&errBody))
+	assert.Equal(t, ErrCodeBadRequest, errBody.Code)
+	assert.Equal(t, ErrMsgNotFile, errBody.Message)
+}
+
+func TestHandleDownload_NotFound(t *testing.T) {
+	cfg := testDropperConfig(t)
+	audit, _ := testFileAuditLogger(t)
+	handler := HandleDownload(cfg, audit, authTestLogger())
+
+	req := httptest.NewRequest(http.MethodGet, RouteFilesDownload+"?"+QueryParamPath+"=nonexistent.txt", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestHandleDownload_EmptyPath(t *testing.T) {
+	cfg := testDropperConfig(t)
+	audit, _ := testFileAuditLogger(t)
+	handler := HandleDownload(cfg, audit, authTestLogger())
+
+	req := httptest.NewRequest(http.MethodGet, RouteFilesDownload, nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var errBody ErrorBody
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&errBody))
+	assert.Equal(t, ErrCodeBadRequest, errBody.Code)
+}
+
+func TestHandleDownload_AuditLogged(t *testing.T) {
+	cfg := testDropperConfig(t)
+	audit, auditPath := testFileAuditLogger(t)
+	handler := HandleDownload(cfg, audit, authTestLogger())
+
+	req := httptest.NewRequest(http.MethodGet, RouteFilesDownload+"?"+QueryParamPath+"=readme.txt", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// Close audit logger to flush.
+	require.NoError(t, audit.Close())
+
+	entries := readAuditEntries(t, auditPath)
+	require.Len(t, entries, 1)
+	assert.Equal(t, AuditActionDownload, entries[0].Action)
+	assert.Equal(t, "readme.txt", entries[0].Path)
+	assert.True(t, entries[0].Success)
+	require.NotNil(t, entries[0].FileSize)
+	assert.Equal(t, int64(5), *entries[0].FileSize) // "hello" = 5 bytes
+}
+
+// --- HandleMkdir tests ---
+
+func TestHandleMkdir_Success(t *testing.T) {
+	cfg := testDropperConfig(t)
+	audit, _ := testFileAuditLogger(t)
+	handler := HandleMkdir(cfg, audit, authTestLogger())
+
+	req := httptest.NewRequest(http.MethodPost,
+		RouteFilesMkdir+"?"+QueryParamPath+"=.&"+QueryParamName+"=newfolder", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusCreated, rec.Code)
+
+	var resp MkdirResponse
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	assert.Equal(t, "newfolder", resp.Name)
+	assert.Equal(t, ".", resp.Path)
+
+	// Verify directory exists on disk.
+	_, err := os.Stat(filepath.Join(cfg.RootDir, "newfolder"))
+	assert.NoError(t, err)
+}
+
+func TestHandleMkdir_ReadonlyRejected(t *testing.T) {
+	cfg := testDropperConfigReadonly(t)
+	audit, _ := testFileAuditLogger(t)
+	handler := HandleMkdir(cfg, audit, authTestLogger())
+
+	req := httptest.NewRequest(http.MethodPost,
+		RouteFilesMkdir+"?"+QueryParamPath+"=.&"+QueryParamName+"=newfolder", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+
+	var errBody ErrorBody
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&errBody))
+	assert.Equal(t, ErrCodeReadonly, errBody.Code)
+}
+
+func TestHandleMkdir_PathTraversal(t *testing.T) {
+	cfg := testDropperConfig(t)
+	audit, _ := testFileAuditLogger(t)
+	handler := HandleMkdir(cfg, audit, authTestLogger())
+
+	req := httptest.NewRequest(http.MethodPost,
+		RouteFilesMkdir+"?"+QueryParamPath+"=../../etc&"+QueryParamName+"=evil", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+}
+
+func TestHandleMkdir_MissingName(t *testing.T) {
+	cfg := testDropperConfig(t)
+	audit, _ := testFileAuditLogger(t)
+	handler := HandleMkdir(cfg, audit, authTestLogger())
+
+	req := httptest.NewRequest(http.MethodPost,
+		RouteFilesMkdir+"?"+QueryParamPath+"=.", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var errBody ErrorBody
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&errBody))
+	assert.Equal(t, ErrCodeBadRequest, errBody.Code)
+}
+
+func TestHandleMkdir_SpecialCharsInName(t *testing.T) {
+	cfg := testDropperConfig(t)
+	audit, _ := testFileAuditLogger(t)
+	handler := HandleMkdir(cfg, audit, authTestLogger())
+
+	req := httptest.NewRequest(http.MethodPost,
+		RouteFilesMkdir+"?"+QueryParamPath+"=.&"+QueryParamName+"=my%20folder%21%40%23", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusCreated, rec.Code)
+
+	var resp MkdirResponse
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	// Name should be sanitized (special chars replaced with _).
+	assert.NotContains(t, resp.Name, " ")
+	assert.NotContains(t, resp.Name, "!")
+	assert.NotContains(t, resp.Name, "@")
+}
+
+func TestHandleMkdir_AuditLogged(t *testing.T) {
+	cfg := testDropperConfig(t)
+	audit, auditPath := testFileAuditLogger(t)
+	handler := HandleMkdir(cfg, audit, authTestLogger())
+
+	req := httptest.NewRequest(http.MethodPost,
+		RouteFilesMkdir+"?"+QueryParamPath+"=.&"+QueryParamName+"=auditdir", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusCreated, rec.Code)
+
+	require.NoError(t, audit.Close())
+
+	entries := readAuditEntries(t, auditPath)
+	require.Len(t, entries, 1)
+	assert.Equal(t, AuditActionMkdir, entries[0].Action)
+	assert.True(t, entries[0].Success)
+}
+
+// --- HandleUpload tests ---
+
+func TestHandleUpload_SingleFile(t *testing.T) {
+	cfg := testUploadConfig(t)
+	audit, _ := testFileAuditLogger(t)
+	handler := HandleUpload(cfg, audit, authTestLogger())
+
+	body, contentType := createMultipartBody(t, FormFieldFile, map[string][]byte{
+		"test.txt": []byte("file content here"),
+	})
+
+	req := httptest.NewRequest(http.MethodPost,
+		RouteFilesUpload+"?"+QueryParamPath+"=.", body)
+	req.Header.Set(HeaderContentType, contentType)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var resp UploadResponse
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	assert.Equal(t, 1, resp.Uploaded)
+	assert.Equal(t, 0, resp.Failed)
+	require.Len(t, resp.Results, 1)
+	assert.Equal(t, "test.txt", resp.Results[0].OriginalName)
+	assert.NotEmpty(t, resp.Results[0].FinalName)
+	assert.Greater(t, resp.Results[0].Size, int64(0))
+
+	// Verify file on disk.
+	diskPath := filepath.Join(cfg.RootDir, resp.Results[0].FinalName)
+	data, err := os.ReadFile(diskPath)
+	require.NoError(t, err)
+	assert.Equal(t, "file content here", string(data))
+}
+
+func TestHandleUpload_MultiFile(t *testing.T) {
+	cfg := testUploadConfig(t)
+	audit, _ := testFileAuditLogger(t)
+	handler := HandleUpload(cfg, audit, authTestLogger())
+
+	body, contentType := createMultipartBody(t, FormFieldFile, map[string][]byte{
+		"file1.txt": []byte("content one"),
+		"file2.txt": []byte("content two"),
+	})
+
+	req := httptest.NewRequest(http.MethodPost,
+		RouteFilesUpload+"?"+QueryParamPath+"=.", body)
+	req.Header.Set(HeaderContentType, contentType)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var resp UploadResponse
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	assert.Equal(t, 2, resp.Uploaded)
+	assert.Equal(t, 0, resp.Failed)
+	assert.Len(t, resp.Results, 2)
+}
+
+func TestHandleUpload_ReadonlyRejected(t *testing.T) {
+	cfg := testDropperConfigReadonly(t)
+	cfg.MaxUploadBytes = DefaultMaxUploadBytes
+	audit, _ := testFileAuditLogger(t)
+	handler := HandleUpload(cfg, audit, authTestLogger())
+
+	body, contentType := createMultipartBody(t, FormFieldFile, map[string][]byte{
+		"test.txt": []byte("data"),
+	})
+
+	req := httptest.NewRequest(http.MethodPost,
+		RouteFilesUpload+"?"+QueryParamPath+"=.", body)
+	req.Header.Set(HeaderContentType, contentType)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+
+	var errBody ErrorBody
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&errBody))
+	assert.Equal(t, ErrCodeReadonly, errBody.Code)
+}
+
+func TestHandleUpload_PayloadTooLarge(t *testing.T) {
+	cfg := testUploadConfig(t)
+	cfg.MaxUploadBytes = 10 // 10 bytes max
+	audit, _ := testFileAuditLogger(t)
+	handler := HandleUpload(cfg, audit, authTestLogger())
+
+	// Create a body larger than 10 bytes.
+	body, contentType := createMultipartBody(t, FormFieldFile, map[string][]byte{
+		"large.txt": bytes.Repeat([]byte("x"), 1024),
+	})
+
+	req := httptest.NewRequest(http.MethodPost,
+		RouteFilesUpload+"?"+QueryParamPath+"=.", body)
+	req.Header.Set(HeaderContentType, contentType)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	// Should be 413 (payload too large) or 400 (multipart parse failure due to size).
+	assert.True(t, rec.Code == http.StatusRequestEntityTooLarge || rec.Code == http.StatusBadRequest,
+		"expected 413 or 400, got %d", rec.Code)
+}
+
+func TestHandleUpload_ExtensionNotAllowed(t *testing.T) {
+	cfg := testUploadConfig(t)
+	cfg.AllowedExtensions = []string{".txt", ".md"}
+	audit, _ := testFileAuditLogger(t)
+	handler := HandleUpload(cfg, audit, authTestLogger())
+
+	body, contentType := createMultipartBody(t, FormFieldFile, map[string][]byte{
+		"script.exe": []byte("evil binary"),
+	})
+
+	req := httptest.NewRequest(http.MethodPost,
+		RouteFilesUpload+"?"+QueryParamPath+"=.", body)
+	req.Header.Set(HeaderContentType, contentType)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var resp UploadResponse
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	assert.Equal(t, 0, resp.Uploaded)
+	assert.Equal(t, 1, resp.Failed)
+	require.Len(t, resp.Results, 1)
+	assert.Contains(t, resp.Results[0].Error, ErrMsgExtNotAllowed)
+}
+
+func TestHandleUpload_PathTraversal(t *testing.T) {
+	cfg := testUploadConfig(t)
+	audit, _ := testFileAuditLogger(t)
+	handler := HandleUpload(cfg, audit, authTestLogger())
+
+	body, contentType := createMultipartBody(t, FormFieldFile, map[string][]byte{
+		"test.txt": []byte("data"),
+	})
+
+	req := httptest.NewRequest(http.MethodPost,
+		RouteFilesUpload+"?"+QueryParamPath+"=../../etc", body)
+	req.Header.Set(HeaderContentType, contentType)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var resp UploadResponse
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	// Path traversal should cause the file write to fail.
+	assert.Equal(t, 0, resp.Uploaded)
+	assert.Equal(t, 1, resp.Failed)
+}
+
+func TestHandleUpload_NoFiles(t *testing.T) {
+	cfg := testUploadConfig(t)
+	audit, _ := testFileAuditLogger(t)
+	handler := HandleUpload(cfg, audit, authTestLogger())
+
+	// Create an empty multipart body (no files).
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+	require.NoError(t, writer.Close())
+
+	req := httptest.NewRequest(http.MethodPost,
+		RouteFilesUpload+"?"+QueryParamPath+"=.", &buf)
+	req.Header.Set(HeaderContentType, writer.FormDataContentType())
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var errBody ErrorBody
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&errBody))
+	assert.Equal(t, ErrCodeBadRequest, errBody.Code)
+}
+
+func TestHandleUpload_ClipboardMode(t *testing.T) {
+	cfg := testUploadConfig(t)
+	audit, _ := testFileAuditLogger(t)
+	handler := HandleUpload(cfg, audit, authTestLogger())
+
+	body, contentType := createMultipartBody(t, FormFieldFile, map[string][]byte{
+		"blob": []byte("fake png data"),
+	})
+
+	req := httptest.NewRequest(http.MethodPost,
+		RouteFilesUpload+"?"+QueryParamPath+"=.&"+QueryParamClipboard+"=true", body)
+	req.Header.Set(HeaderContentType, contentType)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var resp UploadResponse
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	assert.Equal(t, 1, resp.Uploaded)
+	require.Len(t, resp.Results, 1)
+	// Clipboard filename should match pattern: YYYYMMDD-HHMMSS_clipboard.png
+	assert.Contains(t, resp.Results[0].FinalName, ClipboardFilenamePrefix)
+	assert.Contains(t, resp.Results[0].FinalName, ClipboardFilenameExt)
+}
+
+func TestHandleUpload_FilenameCollision(t *testing.T) {
+	cfg := testUploadConfig(t)
+	audit, _ := testFileAuditLogger(t)
+	handler := HandleUpload(cfg, audit, authTestLogger())
+
+	// First upload.
+	body1, ct1 := createMultipartBody(t, FormFieldFile, map[string][]byte{
+		"collision.txt": []byte("first"),
+	})
+	req1 := httptest.NewRequest(http.MethodPost,
+		RouteFilesUpload+"?"+QueryParamPath+"=.", body1)
+	req1.Header.Set(HeaderContentType, ct1)
+	rec1 := httptest.NewRecorder()
+	handler.ServeHTTP(rec1, req1)
+
+	var resp1 UploadResponse
+	require.NoError(t, json.NewDecoder(rec1.Body).Decode(&resp1))
+	assert.Equal(t, 1, resp1.Uploaded)
+	firstName := resp1.Results[0].FinalName
+
+	// Second upload with same name.
+	body2, ct2 := createMultipartBody(t, FormFieldFile, map[string][]byte{
+		"collision.txt": []byte("second"),
+	})
+	req2 := httptest.NewRequest(http.MethodPost,
+		RouteFilesUpload+"?"+QueryParamPath+"=.", body2)
+	req2.Header.Set(HeaderContentType, ct2)
+	rec2 := httptest.NewRecorder()
+	handler.ServeHTTP(rec2, req2)
+
+	var resp2 UploadResponse
+	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&resp2))
+	assert.Equal(t, 1, resp2.Uploaded)
+	secondName := resp2.Results[0].FinalName
+
+	// Names should differ due to collision resolution.
+	assert.NotEqual(t, firstName, secondName)
+
+	// Both files should exist on disk.
+	_, err1 := os.Stat(filepath.Join(cfg.RootDir, firstName))
+	assert.NoError(t, err1)
+	_, err2 := os.Stat(filepath.Join(cfg.RootDir, secondName))
+	assert.NoError(t, err2)
+}
+
+func TestHandleUpload_AuditLogged(t *testing.T) {
+	cfg := testUploadConfig(t)
+	audit, auditPath := testFileAuditLogger(t)
+	handler := HandleUpload(cfg, audit, authTestLogger())
+
+	body, contentType := createMultipartBody(t, FormFieldFile, map[string][]byte{
+		"audit-test.txt": []byte("audit me"),
+	})
+
+	req := httptest.NewRequest(http.MethodPost,
+		RouteFilesUpload+"?"+QueryParamPath+"=.", body)
+	req.Header.Set(HeaderContentType, contentType)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	require.NoError(t, audit.Close())
+
+	entries := readAuditEntries(t, auditPath)
+	require.GreaterOrEqual(t, len(entries), 1)
+	assert.Equal(t, AuditActionUpload, entries[0].Action)
+	assert.True(t, entries[0].Success)
+	require.NotNil(t, entries[0].FileSize)
+}
+
+func TestHandleUpload_ToSubdir(t *testing.T) {
+	cfg := testUploadConfig(t)
+	audit, _ := testFileAuditLogger(t)
+	handler := HandleUpload(cfg, audit, authTestLogger())
+
+	body, contentType := createMultipartBody(t, FormFieldFile, map[string][]byte{
+		"subdir-file.txt": []byte("in docs"),
+	})
+
+	req := httptest.NewRequest(http.MethodPost,
+		RouteFilesUpload+"?"+QueryParamPath+"=docs", body)
+	req.Header.Set(HeaderContentType, contentType)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var resp UploadResponse
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	assert.Equal(t, 1, resp.Uploaded)
+
+	// Verify file is in the docs subdirectory.
+	diskPath := filepath.Join(cfg.RootDir, "docs", resp.Results[0].FinalName)
+	data, err := os.ReadFile(diskPath)
+	require.NoError(t, err)
+	assert.Equal(t, "in docs", string(data))
 }

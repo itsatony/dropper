@@ -1,9 +1,11 @@
 package dropper
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"log/slog"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -662,4 +664,251 @@ func TestServer_FilesRoute_JSONAuth(t *testing.T) {
 	err = json.NewDecoder(resp.Body).Decode(&errBody)
 	require.NoError(t, err)
 	assert.Equal(t, ErrCodeUnauthorized, errBody.Code)
+}
+
+// --- File operation integration tests ---
+
+// serverMultipartUpload creates a multipart upload request and sends it to the server.
+func serverMultipartUpload(t *testing.T, tsURL string, cookie *http.Cookie, path string, files map[string][]byte) *http.Response {
+	t.Helper()
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+	for name, content := range files {
+		part, err := writer.CreateFormFile(FormFieldFile, name)
+		require.NoError(t, err)
+		_, err = part.Write(content)
+		require.NoError(t, err)
+	}
+	require.NoError(t, writer.Close())
+
+	reqURL := tsURL + RouteFilesUpload + "?" + QueryParamPath + "=" + url.QueryEscape(path)
+	req, err := http.NewRequest(http.MethodPost, reqURL, &buf)
+	require.NoError(t, err)
+	req.Header.Set(HeaderContentType, writer.FormDataContentType())
+	req.AddCookie(cookie)
+
+	resp, err := noRedirectClient().Do(req)
+	require.NoError(t, err)
+	return resp
+}
+
+func TestServer_FullUploadDownloadFlow(t *testing.T) {
+	initTestVersion(t)
+	cfg := testConfig(t)
+	srv, err := NewServer(cfg, testLogger(), nil, testTemplateFS())
+	require.NoError(t, err)
+
+	ts := httptest.NewServer(srv.Router())
+	defer ts.Close()
+	t.Cleanup(func() { _ = srv.Shutdown(t.Context()) })
+
+	cookie := loginAndGetCookie(t, ts.URL, cfg.Dropper.Secret)
+
+	// Step 1: Upload a file.
+	uploadContent := []byte("integration test content")
+	resp := serverMultipartUpload(t, ts.URL, cookie, ".", map[string][]byte{
+		"integration.txt": uploadContent,
+	})
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var uploadResp UploadResponse
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&uploadResp))
+	require.Equal(t, 1, uploadResp.Uploaded)
+	require.Len(t, uploadResp.Results, 1)
+	finalName := uploadResp.Results[0].FinalName
+
+	// Step 2: List files via JSON — verify uploaded file appears.
+	listReq, err := http.NewRequest(http.MethodGet,
+		ts.URL+RouteFiles+"?"+QueryParamPath+"=.", nil)
+	require.NoError(t, err)
+	listReq.AddCookie(cookie)
+	listReq.Header.Set(HeaderAccept, ContentTypeJSON)
+
+	listResp, err := noRedirectClient().Do(listReq)
+	require.NoError(t, err)
+	defer listResp.Body.Close()
+	require.Equal(t, http.StatusOK, listResp.StatusCode)
+
+	var entries []FileEntry
+	require.NoError(t, json.NewDecoder(listResp.Body).Decode(&entries))
+
+	found := false
+	for _, e := range entries {
+		if e.Name == finalName {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "uploaded file %q should appear in file listing", finalName)
+
+	// Step 3: Download the file — verify content matches.
+	dlReq, err := http.NewRequest(http.MethodGet,
+		ts.URL+RouteFilesDownload+"?"+QueryParamPath+"="+url.QueryEscape(finalName), nil)
+	require.NoError(t, err)
+	dlReq.AddCookie(cookie)
+
+	dlResp, err := noRedirectClient().Do(dlReq)
+	require.NoError(t, err)
+	defer dlResp.Body.Close()
+	require.Equal(t, http.StatusOK, dlResp.StatusCode)
+
+	dlBody, err := io.ReadAll(dlResp.Body)
+	require.NoError(t, err)
+	assert.Equal(t, string(uploadContent), string(dlBody))
+
+	// Verify Content-Disposition header.
+	assert.Contains(t, dlResp.Header.Get(HeaderContentDisposition), finalName)
+}
+
+func TestServer_ReadonlyMode_WritesRejected(t *testing.T) {
+	initTestVersion(t)
+	cfg := testConfig(t)
+	cfg.Dropper.Readonly = true
+
+	srv, err := NewServer(cfg, testLogger(), nil, testTemplateFS())
+	require.NoError(t, err)
+
+	ts := httptest.NewServer(srv.Router())
+	defer ts.Close()
+	t.Cleanup(func() { _ = srv.Shutdown(t.Context()) })
+
+	cookie := loginAndGetCookie(t, ts.URL, cfg.Dropper.Secret)
+
+	// Upload should be rejected.
+	resp := serverMultipartUpload(t, ts.URL, cookie, ".", map[string][]byte{
+		"test.txt": []byte("data"),
+	})
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+
+	// Mkdir should be rejected.
+	mkdirReq, err := http.NewRequest(http.MethodPost,
+		ts.URL+RouteFilesMkdir+"?"+QueryParamPath+"=.&"+QueryParamName+"=testdir", nil)
+	require.NoError(t, err)
+	mkdirReq.AddCookie(cookie)
+
+	mkdirResp, err := noRedirectClient().Do(mkdirReq)
+	require.NoError(t, err)
+	defer mkdirResp.Body.Close()
+	assert.Equal(t, http.StatusForbidden, mkdirResp.StatusCode)
+}
+
+func TestServer_Upload_AuthRequired(t *testing.T) {
+	initTestVersion(t)
+	cfg := testConfig(t)
+	srv, err := NewServer(cfg, testLogger(), nil, testTemplateFS())
+	require.NoError(t, err)
+
+	ts := httptest.NewServer(srv.Router())
+	defer ts.Close()
+
+	client := noRedirectClient()
+
+	// POST /files/upload without session → redirect to /login.
+	resp, err := client.Post(ts.URL+RouteFilesUpload, ContentTypeForm, nil)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusSeeOther, resp.StatusCode)
+	assert.Equal(t, RouteLogin, resp.Header.Get(HeaderLocation))
+}
+
+func TestServer_Download_AuthRequired(t *testing.T) {
+	initTestVersion(t)
+	cfg := testConfig(t)
+	srv, err := NewServer(cfg, testLogger(), nil, testTemplateFS())
+	require.NoError(t, err)
+
+	ts := httptest.NewServer(srv.Router())
+	defer ts.Close()
+
+	client := noRedirectClient()
+
+	// GET /files/download without session → redirect to /login.
+	resp, err := client.Get(ts.URL + RouteFilesDownload + "?" + QueryParamPath + "=hello.txt")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusSeeOther, resp.StatusCode)
+	assert.Equal(t, RouteLogin, resp.Header.Get(HeaderLocation))
+}
+
+func TestServer_Mkdir_AuthRequired(t *testing.T) {
+	initTestVersion(t)
+	cfg := testConfig(t)
+	srv, err := NewServer(cfg, testLogger(), nil, testTemplateFS())
+	require.NoError(t, err)
+
+	ts := httptest.NewServer(srv.Router())
+	defer ts.Close()
+
+	client := noRedirectClient()
+
+	// POST /files/mkdir without session → redirect to /login.
+	resp, err := client.Post(ts.URL+RouteFilesMkdir+"?"+QueryParamName+"=test", ContentTypeForm, nil)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusSeeOther, resp.StatusCode)
+	assert.Equal(t, RouteLogin, resp.Header.Get(HeaderLocation))
+}
+
+func TestServer_AuditLog_RecordsOperations(t *testing.T) {
+	initTestVersion(t)
+	cfg := testConfig(t)
+	srv, err := NewServer(cfg, testLogger(), nil, testTemplateFS())
+	require.NoError(t, err)
+
+	ts := httptest.NewServer(srv.Router())
+	defer ts.Close()
+
+	cookie := loginAndGetCookie(t, ts.URL, cfg.Dropper.Secret)
+
+	// Upload a file.
+	resp := serverMultipartUpload(t, ts.URL, cookie, ".", map[string][]byte{
+		"audit-int.txt": []byte("audit data"),
+	})
+	resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	// Download the file.
+	dlReq, err := http.NewRequest(http.MethodGet,
+		ts.URL+RouteFilesDownload+"?"+QueryParamPath+"=audit-int.txt", nil)
+	require.NoError(t, err)
+	dlReq.AddCookie(cookie)
+	dlResp, err := noRedirectClient().Do(dlReq)
+	require.NoError(t, err)
+	dlResp.Body.Close()
+
+	// Mkdir.
+	mkdirReq, err := http.NewRequest(http.MethodPost,
+		ts.URL+RouteFilesMkdir+"?"+QueryParamPath+"=.&"+QueryParamName+"=auditsubdir", nil)
+	require.NoError(t, err)
+	mkdirReq.AddCookie(cookie)
+	mkdirResp, err := noRedirectClient().Do(mkdirReq)
+	require.NoError(t, err)
+	mkdirResp.Body.Close()
+
+	// Shutdown to flush audit log.
+	require.NoError(t, srv.Shutdown(t.Context()))
+
+	// Read the audit log.
+	data, err := os.ReadFile(cfg.Dropper.AuditLogPath)
+	require.NoError(t, err)
+
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	require.GreaterOrEqual(t, len(lines), 3, "should have at least 3 audit entries (upload + download + mkdir)")
+
+	// Parse entries and verify actions.
+	actions := make(map[string]bool)
+	for _, line := range lines {
+		var entry AuditEntry
+		require.NoError(t, json.Unmarshal([]byte(line), &entry))
+		actions[entry.Action] = true
+	}
+
+	assert.True(t, actions[AuditActionUpload], "audit log should contain upload action")
+	assert.True(t, actions[AuditActionDownload], "audit log should contain download action")
+	assert.True(t, actions[AuditActionMkdir], "audit log should contain mkdir action")
 }

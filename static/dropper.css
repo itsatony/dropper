@@ -369,6 +369,15 @@ a.filelist-link:hover {
   font-style: italic;
 }
 
+/* --- Actions Bar --- */
+
+.actions-bar {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 1rem;
+  align-items: center;
+}
+
 /* --- Drop Zone --- */
 
 .dropzone {

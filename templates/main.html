@@ -20,6 +20,9 @@
     </div>
 
     {{if not .Readonly}}
+    <div class="actions-bar">
+      <button type="button" class="btn btn-secondary" id="mkdir-btn">+ New Folder</button>
+    </div>
     {{template "dropzone" .}}
     {{end}}
   </main>
