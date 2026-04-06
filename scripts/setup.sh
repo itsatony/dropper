@@ -27,22 +27,22 @@ generate_secret() {
 }
 
 prompt() {
-    local var_name="$1" prompt_text="$2" default_val="$3"
+    local prompt_text="$1" default_val="$2"
     local input
     printf '%s [%s]: ' "$prompt_text" "$default_val"
     read -r input
-    eval "${var_name}=\"${input:-${default_val}}\""
+    REPLY="${input:-${default_val}}"
 }
 
 prompt_yn() {
-    local var_name="$1" prompt_text="$2" default_val="$3"
+    local prompt_text="$1" default_val="$2"
     local input
     printf '%s [%s]: ' "$prompt_text" "$default_val"
     read -r input
     input="${input:-${default_val}}"
     case "${input}" in
-        [yY]|[yY][eE][sS]) eval "${var_name}=true" ;;
-        *)                  eval "${var_name}=false" ;;
+        [yY]|[yY][eE][sS]) REPLY="true" ;;
+        *)                  REPLY="false" ;;
     esac
 }
 
@@ -91,27 +91,34 @@ main() {
     # --- Interactive prompts ---
     local secret port root_dir max_upload readonly_mode allowed_exts
 
-    prompt secret "Pre-shared secret" "${generated_secret}"
+    prompt "Pre-shared secret" "${generated_secret}"
+    secret="${REPLY}"
 
     if [ ${#secret} -lt 8 ]; then
         red "Error: secret must be at least 8 characters."
         exit 1
     fi
 
-    prompt port "Listen port" "${DEFAULT_PORT}"
+    prompt "Listen port" "${DEFAULT_PORT}"
+    port="${REPLY}"
 
     if ! check_port "${port}"; then
         yellow "Warning: port ${port} appears to be in use."
-        prompt port "Choose a different port" "$((port + 1))"
+        prompt "Choose a different port" "$((port + 1))"
+        port="${REPLY}"
     fi
 
-    prompt root_dir "Host directory to mount as /data" "${DEFAULT_ROOT_DIR}"
+    prompt "Host directory to mount as /data" "${DEFAULT_ROOT_DIR}"
+    root_dir="${REPLY}"
 
-    prompt max_upload "Max upload size in bytes (104857600 = 100MB)" "${DEFAULT_MAX_UPLOAD}"
+    prompt "Max upload size in bytes (104857600 = 100MB)" "${DEFAULT_MAX_UPLOAD}"
+    max_upload="${REPLY}"
 
-    prompt_yn readonly_mode "Read-only mode? (y/N)" "N"
+    prompt_yn "Read-only mode? (y/N)" "N"
+    readonly_mode="${REPLY}"
 
-    prompt allowed_exts "Allowed extensions (comma-separated, empty = all)" ""
+    prompt "Allowed extensions (comma-separated, empty = all)" ""
+    allowed_exts="${REPLY}"
 
     echo ""
     bold "--- Configuration summary ---"

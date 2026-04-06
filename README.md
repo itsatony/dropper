@@ -154,19 +154,21 @@ Single Go binary serves everything (API + static assets + templates). No fronten
 ```
 cmd/dropper/main.go         -- entrypoint, signal handling
 internal/                    -- flat package, files named dropper.{concern}.go
+  dropper.constants.go       -- all constants (zero magic literals)
   dropper.config.go          -- config struct + validation
+  dropper.logging.go         -- slog logger factory (JSON/console)
+  dropper.response.go        -- JSON response helpers
   dropper.server.go          -- chi router setup, middleware
   dropper.handlers.auth.go   -- login, logout, session middleware
   dropper.handlers.files.go  -- upload, download, mkdir, browse
   dropper.handlers.health.go -- /healthz, /metrics
+  dropper.errors.go          -- custom error types
+  dropper.metrics.go         -- Prometheus metrics
   dropper.fs.go              -- filesystem operations, path jail
   dropper.session.go         -- in-memory session store
   dropper.ratelimit.go       -- per-IP rate limiter
   dropper.audit.go           -- JSON lines audit logger
-  dropper.errors.go          -- custom error types
-  dropper.metrics.go         -- Prometheus metrics
   dropper.templates.go       -- template rendering
-  dropper.constants.go       -- all constants
 embed.go                     -- go:embed for versions.yaml, static/*, templates/*
 templates/                   -- Go HTML templates
 static/                      -- vendored HTMX, CSS, JS

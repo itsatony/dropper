@@ -32,8 +32,8 @@ bold()  { printf '\033[1m%s\033[0m\n' "$*"; }
 # --- Cleanup on exit ---
 cleanup() {
     bold "Cleaning up..."
-    docker stop "${CONTAINER_NAME}" 2>/dev/null || true
-    docker rm -f "${CONTAINER_NAME}" 2>/dev/null || true
+    ${RUNTIME} stop "${CONTAINER_NAME}" 2>/dev/null || true
+    ${RUNTIME} rm -f "${CONTAINER_NAME}" 2>/dev/null || true
 }
 trap cleanup EXIT
 
@@ -60,18 +60,26 @@ assert_status() {
     fi
 }
 
-# --- Check docker is available ---
-if ! command -v docker &>/dev/null; then
-    echo "Error: docker not found. Cannot run smoke test."
+# --- Detect container runtime ---
+if [ -n "${CONTAINER_RUNTIME:-}" ]; then
+    RUNTIME="${CONTAINER_RUNTIME}"
+elif command -v podman &>/dev/null; then
+    RUNTIME="podman"
+elif command -v docker &>/dev/null; then
+    RUNTIME="docker"
+else
+    echo "Error: neither podman nor docker found. Cannot run smoke test."
+    echo "Set CONTAINER_RUNTIME env var to override."
     exit 1
 fi
 
 # --- Build image ---
 bold "=== dropper smoke test ==="
 echo ""
+bold "Using runtime: ${RUNTIME}"
 bold "Building image ${DOCKER_IMAGE}:${DOCKER_TAG}..."
 
-docker build -q -t "${DOCKER_IMAGE}:${DOCKER_TAG}" . >/dev/null
+${RUNTIME} build -q -t "${DOCKER_IMAGE}:${DOCKER_TAG}" . >/dev/null
 
 bold "Starting container ${CONTAINER_NAME} on port ${TEST_PORT}..."
 
@@ -79,7 +87,7 @@ bold "Starting container ${CONTAINER_NAME} on port ${TEST_PORT}..."
 TEMP_DATA="$(mktemp -d)"
 trap 'cleanup; rm -rf "${TEMP_DATA}"' EXIT
 
-docker run -d \
+${RUNTIME} run -d \
     --name "${CONTAINER_NAME}" \
     -p "${TEST_PORT}:8080" \
     -v "${TEMP_DATA}:/data" \
@@ -103,7 +111,7 @@ done
 if [ ${elapsed} -ge ${MAX_WAIT_SECONDS} ]; then
     red "Container did not become ready within ${MAX_WAIT_SECONDS}s"
     echo "Container logs:"
-    docker logs "${CONTAINER_NAME}" 2>&1 | tail -20
+    ${RUNTIME} logs "${CONTAINER_NAME}" 2>&1 | tail -20
     exit 1
 fi
 
@@ -175,7 +183,7 @@ bold "=== Results: ${PASS} passed, ${FAIL} failed ==="
 if [ ${FAIL} -gt 0 ]; then
     echo ""
     echo "Container logs (last 20 lines):"
-    docker logs "${CONTAINER_NAME}" 2>&1 | tail -20
+    ${RUNTIME} logs "${CONTAINER_NAME}" 2>&1 | tail -20
     exit 1
 fi
 
