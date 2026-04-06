@@ -579,6 +579,9 @@ func CreateDirectory(rootDir, relParentPath, name string, readonly bool, logger 
 	}
 
 	if err := os.Mkdir(newSafePath, DirPermissions); err != nil {
+		if errors.Is(err, fs.ErrExist) {
+			return "", NewDirExistsError()
+		}
 		return "", NewCreateDirError(err)
 	}
 

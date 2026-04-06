@@ -26,6 +26,7 @@ var (
 	ErrRenameFile     = errors.New(ErrMsgRenameFile)
 	ErrFileStat       = errors.New(ErrMsgFileStat)
 	ErrInvalidRelPath = errors.New(ErrMsgInvalidRelPath)
+	ErrDirExists      = errors.New(ErrMsgDirExists)
 	ErrCSRFRejected   = errors.New(ErrMsgCSRFOriginMismatch)
 )
 
@@ -164,6 +165,11 @@ func NewFileStatError(wrapped error) *DropperError {
 // NewInvalidRelPathError returns a 400 Bad Request error for invalid relative paths in directory uploads.
 func NewInvalidRelPathError() *DropperError {
 	return NewDropperError(ErrInvalidRelPath, http.StatusBadRequest, ErrCodeInvalidRelPath, ErrMsgInvalidRelPath, nil)
+}
+
+// NewDirExistsError returns a 409 Conflict error when a directory already exists.
+func NewDirExistsError() *DropperError {
+	return NewDropperError(ErrDirExists, http.StatusConflict, ErrCodeDirExists, ErrMsgDirExists, nil)
 }
 
 // NewCSRFError returns a 403 Forbidden error when CSRF origin validation fails.

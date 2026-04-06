@@ -3,6 +3,7 @@ package dropper
 import (
 	"bytes"
 	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -599,13 +600,17 @@ func TestCreateDirectory(t *testing.T) {
 		assert.True(t, errors.Is(err, ErrPathTraversal))
 	})
 
-	t.Run("already exists returns error", func(t *testing.T) {
+	t.Run("already exists returns conflict error", func(t *testing.T) {
 		root := t.TempDir()
 		require.NoError(t, os.Mkdir(filepath.Join(root, "existing"), DirPermissions))
 
 		_, err := CreateDirectory(root, "", "existing", false, logger)
 		require.Error(t, err)
-		assert.True(t, errors.Is(err, ErrCreateDir))
+		assert.True(t, errors.Is(err, ErrDirExists))
+
+		var de *DropperError
+		require.True(t, errors.As(err, &de))
+		assert.Equal(t, http.StatusConflict, de.StatusCode)
 	})
 
 	t.Run("nested creation in subdirectory", func(t *testing.T) {

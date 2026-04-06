@@ -49,6 +49,7 @@ func TestDropperError_Is_SentinelMatch(t *testing.T) {
 		{"file stat matches", NewFileStatError(nil), ErrFileStat, true},
 		{"path resolution matches", NewPathResolutionError(nil), ErrPathResolution, true},
 		{"invalid relpath matches", NewInvalidRelPathError(), ErrInvalidRelPath, true},
+		{"dir exists matches", NewDirExistsError(), ErrDirExists, true},
 		{"csrf rejected matches", NewCSRFError(), ErrCSRFRejected, true},
 		// Negative cases.
 		{"traversal is not readonly", NewPathTraversalError(), ErrReadonlyMode, false},
@@ -133,6 +134,7 @@ func TestMapDropperError_AllSentinels(t *testing.T) {
 		{"rename file", NewRenameFileError(nil), http.StatusInternalServerError, ErrCodeInternal, ErrMsgRenameFile},
 		{"file stat", NewFileStatError(nil), http.StatusNotFound, ErrCodeNotFound, ErrMsgFileStat},
 		{"invalid relpath", NewInvalidRelPathError(), http.StatusBadRequest, ErrCodeInvalidRelPath, ErrMsgInvalidRelPath},
+		{"dir exists", NewDirExistsError(), http.StatusConflict, ErrCodeDirExists, ErrMsgDirExists},
 		{"csrf rejected", NewCSRFError(), http.StatusForbidden, ErrCodeCSRF, ErrMsgCSRFOriginMismatch},
 	}
 

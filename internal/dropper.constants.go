@@ -298,6 +298,7 @@ const (
 	ErrMsgMissingParam    = "required parameter missing"
 	ErrMsgInternal        = "internal server error"
 	ErrMsgInvalidRelPath  = "invalid relative path in upload"
+	ErrMsgDirExists       = "directory already exists"
 )
 
 // --- Config validation error messages ---
@@ -320,6 +321,7 @@ const (
 	ErrCodeFileTooLarge    = "file_too_large"
 	ErrCodePayloadTooLarge = "payload_too_large"
 	ErrCodeInvalidRelPath  = "invalid_relpath"
+	ErrCodeDirExists       = "directory_exists"
 )
 
 // --- Sort fields ---
