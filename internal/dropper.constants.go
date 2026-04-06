@@ -98,12 +98,12 @@ const (
 // --- Route paths ---
 
 const (
-	RouteHealthz = "/healthz"
-	RouteVersion = "/version"
-	RouteMetrics = "/metrics"
-	RouteStatic  = "/static/*"
-	RouteLogin   = "/login"
-	RouteLogout  = "/logout"
+	RouteHealthz       = "/healthz"
+	RouteVersion       = "/version"
+	RouteMetrics       = "/metrics"
+	RouteStatic        = "/static/*"
+	RouteLogin         = "/login"
+	RouteLogout        = "/logout"
 	RouteRoot          = "/"
 	RouteFiles         = "/files"
 	RouteFilesDownload = "/files/download"
