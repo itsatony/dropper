@@ -215,9 +215,12 @@ func HandleDownload(cfg *DropperConfig, audit *AuditLogger, logger *slog.Logger)
 			LogFieldSize, fileSize,
 		)
 
-		// Set Content-Disposition before ServeFile writes headers.
+		// Sanitize the display filename for the Content-Disposition header.
+		// Files placed on the volume outside dropper could have characters
+		// that break the header (quotes, backslashes).
+		displayName := SanitizeFilename(info.Name())
 		w.Header().Set(HeaderContentDisposition,
-			fmt.Sprintf(ContentDispositionFormat, info.Name()))
+			fmt.Sprintf(ContentDispositionFormat, displayName))
 		http.ServeFile(w, r, safePath)
 	}
 }
@@ -244,21 +247,21 @@ func HandleMkdir(cfg *DropperConfig, audit *AuditLogger, logger *slog.Logger) ht
 
 		sanitizedName := SanitizeFilename(name)
 
-		err := CreateDirectory(cfg.RootDir, relPath, name, cfg.Readonly, logger)
+		err := CreateDirectory(cfg.RootDir, relPath, sanitizedName, cfg.Readonly, logger)
 		if err != nil {
 			entry := NewAuditEntry(r, AuditActionMkdir, filepath.Join(relPath, sanitizedName))
 			entry.Success = false
 			entry.Error = err.Error()
 			audit.Log(entry)
 
-			logger.Warn(LogMsgUploadFailed,
+			logger.Warn(LogMsgMkdirFailed,
 				LogFieldPath, relPath,
 				LogFieldFilename, sanitizedName,
 				LogFieldError, err,
 			)
 
-			statusCode := mapFSErrorToStatus(err)
-			RespondError(w, statusCode, mapStatusToErrCode(statusCode), err.Error())
+			statusCode, errCode, safeMsg := mapFSError(err)
+			RespondError(w, statusCode, errCode, safeMsg)
 			return
 		}
 
@@ -305,7 +308,9 @@ func HandleUpload(cfg *DropperConfig, audit *AuditLogger, logger *slog.Logger) h
 		}
 		defer func() {
 			if r.MultipartForm != nil {
-				_ = r.MultipartForm.RemoveAll()
+				if cleanupErr := r.MultipartForm.RemoveAll(); cleanupErr != nil {
+					logger.Warn(LogMsgMultipartCleanup, LogFieldError, cleanupErr)
+				}
 			}
 		}()
 
@@ -331,7 +336,7 @@ func HandleUpload(cfg *DropperConfig, audit *AuditLogger, logger *slog.Logger) h
 			if err != nil {
 				results = append(results, UploadResult{
 					OriginalName: fh.Filename,
-					Error:        err.Error(),
+					Error:        ErrMsgWriteFile,
 				})
 				failed++
 				continue
@@ -348,7 +353,9 @@ func HandleUpload(cfg *DropperConfig, audit *AuditLogger, logger *slog.Logger) h
 				cfg.MaxUploadBytes, cfg.AllowedExtensions,
 				cfg.Readonly, logger,
 			)
-			file.Close()
+			if closeErr := file.Close(); closeErr != nil {
+				logger.Warn(LogMsgFileHandleClose, LogFieldError, closeErr)
+			}
 
 			if err != nil {
 				entry := NewAuditEntry(r, AuditActionUpload, filepath.Join(relPath, filename))
@@ -358,7 +365,7 @@ func HandleUpload(cfg *DropperConfig, audit *AuditLogger, logger *slog.Logger) h
 
 				results = append(results, UploadResult{
 					OriginalName: fh.Filename,
-					Error:        err.Error(),
+					Error:        safeUploadErrorMessage(err),
 				})
 				failed++
 
@@ -370,13 +377,11 @@ func HandleUpload(cfg *DropperConfig, audit *AuditLogger, logger *slog.Logger) h
 				continue
 			}
 
-			// Stat the written file to get actual size.
+			// Get actual written size by statting the file directly.
 			var fileSize int64
-			safePath, statErr := SafePath(cfg.RootDir, filepath.Join(relPath, finalName))
-			if statErr == nil {
-				if info, statErr := os.Stat(safePath); statErr == nil {
-					fileSize = info.Size()
-				}
+			diskPath := filepath.Join(cfg.RootDir, relPath, finalName)
+			if info, statErr := os.Stat(diskPath); statErr == nil {
+				fileSize = info.Size()
 			}
 
 			entry := NewAuditEntry(r, AuditActionUpload, filepath.Join(relPath, finalName))
@@ -406,7 +411,7 @@ func HandleUpload(cfg *DropperConfig, audit *AuditLogger, logger *slog.Logger) h
 			uploaded++
 		}
 
-		logger.Info(LogMsgUploadSuccess,
+		logger.Info(LogMsgUploadBatchComplete,
 			LogFieldUploadCount, uploaded,
 			LogFieldFailCount, failed,
 		)
@@ -419,35 +424,43 @@ func HandleUpload(cfg *DropperConfig, audit *AuditLogger, logger *slog.Logger) h
 	}
 }
 
-// mapFSErrorToStatus maps filesystem operation errors to HTTP status codes.
-func mapFSErrorToStatus(err error) int {
-	msg := err.Error()
-	switch {
-	case strings.Contains(msg, ErrMsgPathTraversal):
-		return http.StatusForbidden
-	case strings.Contains(msg, ErrMsgReadonlyMode):
-		return http.StatusForbidden
-	case strings.Contains(msg, ErrMsgExtNotAllowed):
-		return http.StatusBadRequest
-	case strings.Contains(msg, ErrMsgNotDirectory):
-		return http.StatusBadRequest
-	case strings.Contains(msg, ErrMsgFileTooLarge):
-		return http.StatusRequestEntityTooLarge
-	default:
-		return http.StatusInternalServerError
-	}
+// fsErrorMapping holds the HTTP status code and safe client-facing message for
+// a filesystem error matched by a substring of the error message.
+type fsErrorMapping struct {
+	substring  string
+	statusCode int
+	errCode    string
+	safeMsg    string
 }
 
-// mapStatusToErrCode maps HTTP status codes to error code strings.
-func mapStatusToErrCode(status int) string {
-	switch status {
-	case http.StatusForbidden:
-		return ErrCodeForbidden
-	case http.StatusBadRequest:
-		return ErrCodeBadRequest
-	case http.StatusRequestEntityTooLarge:
-		return ErrCodePayloadTooLarge
-	default:
-		return ErrCodeInternal
+// fsErrorMappings defines the ordered error-to-HTTP-response mappings.
+// First match wins. The safe message is returned to the client instead of the
+// raw error string, preventing internal path information from leaking.
+var fsErrorMappings = []fsErrorMapping{
+	{ErrMsgPathTraversal, http.StatusForbidden, ErrCodeForbidden, ErrMsgPathTraversal},
+	{ErrMsgReadonlyMode, http.StatusForbidden, ErrCodeReadonly, ErrMsgReadonlyMode},
+	{ErrMsgExtNotAllowed, http.StatusBadRequest, ErrCodeExtNotAllowed, ErrMsgExtNotAllowed},
+	{ErrMsgNotDirectory, http.StatusBadRequest, ErrCodeBadRequest, ErrMsgNotDirectory},
+	{ErrMsgFileTooLarge, http.StatusRequestEntityTooLarge, ErrCodeFileTooLarge, ErrMsgFileTooLarge},
+	{ErrMsgCreateDir, http.StatusInternalServerError, ErrCodeInternal, ErrMsgCreateDir},
+	{ErrMsgWriteFile, http.StatusInternalServerError, ErrCodeInternal, ErrMsgWriteFile},
+}
+
+// mapFSError maps a filesystem operation error to an HTTP status code, error
+// code, and a safe client-facing message (never the raw error string).
+func mapFSError(err error) (int, string, string) {
+	msg := err.Error()
+	for _, m := range fsErrorMappings {
+		if strings.Contains(msg, m.substring) {
+			return m.statusCode, m.errCode, m.safeMsg
+		}
 	}
+	return http.StatusInternalServerError, ErrCodeInternal, ErrMsgWriteFile
+}
+
+// safeUploadErrorMessage returns a client-safe error message for an upload
+// file error, stripping any internal path information.
+func safeUploadErrorMessage(err error) string {
+	_, _, safeMsg := mapFSError(err)
+	return safeMsg
 }

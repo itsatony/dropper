@@ -136,6 +136,23 @@
     return params.get("path") || ".";
   }
 
+  // --- Route URLs (read from data attributes set by templates) ---
+
+  function getUploadURL() {
+    var el = document.getElementById("dropzone");
+    return (el && el.getAttribute("data-upload-url")) || "/files/upload";
+  }
+
+  function getFilesURL() {
+    var el = document.getElementById("file-browser");
+    return (el && el.getAttribute("data-files-url")) || "/files";
+  }
+
+  function getMkdirURL() {
+    var el = document.getElementById("mkdir-btn");
+    return (el && el.getAttribute("data-mkdir-url")) || "/files/mkdir";
+  }
+
   // --- File Upload ---
 
   function uploadFiles(files, isClipboard) {
@@ -147,7 +164,7 @@
     }
 
     var url =
-      "/files/upload?path=" + encodeURIComponent(getCurrentPath());
+      getUploadURL() + "?path=" + encodeURIComponent(getCurrentPath());
     if (isClipboard) url += "&clipboard=true";
 
     fetch(url, { method: "POST", body: formData })
@@ -178,7 +195,7 @@
   function refreshFileList() {
     if (window.htmx) {
       var path = getCurrentPath();
-      htmx.ajax("GET", "/files?path=" + encodeURIComponent(path), {
+      htmx.ajax("GET", getFilesURL() + "?path=" + encodeURIComponent(path), {
         target: "#file-browser",
       });
     }
@@ -327,7 +344,8 @@
       if (!name || !name.trim()) return;
 
       var url =
-        "/files/mkdir?path=" +
+        getMkdirURL() +
+        "?path=" +
         encodeURIComponent(getCurrentPath()) +
         "&name=" +
         encodeURIComponent(name.trim());

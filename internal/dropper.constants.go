@@ -359,11 +359,15 @@ const (
 // --- Log messages (file handlers) ---
 
 const (
-	LogMsgUploadSuccess  = "file uploaded"
-	LogMsgUploadFailed   = "upload failed"
-	LogMsgDownloadServed = "file download served"
-	LogMsgMkdirHandler   = "directory created via handler"
-	LogMsgPasteUpload    = "clipboard paste uploaded"
+	LogMsgUploadSuccess       = "file uploaded"
+	LogMsgUploadFailed        = "upload failed"
+	LogMsgUploadBatchComplete = "upload batch complete"
+	LogMsgDownloadServed      = "file download served"
+	LogMsgMkdirHandler        = "directory created via handler"
+	LogMsgMkdirFailed         = "mkdir failed"
+	LogMsgPasteUpload         = "clipboard paste uploaded"
+	LogMsgMultipartCleanup    = "failed to remove multipart temp files"
+	LogMsgFileHandleClose     = "failed to close uploaded file handle"
 )
 
 // --- Log field names (filesystem) ---
