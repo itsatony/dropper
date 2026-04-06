@@ -592,3 +592,42 @@ const (
 const (
 	LogFieldAuditPath = "audit_path"
 )
+
+// --- Prometheus metrics ---
+
+const (
+	MetricsNamespace = "dropper"
+)
+
+// --- Metric names ---
+
+const (
+	MetricNameRequestsTotal   = "http_requests_total"
+	MetricNameUploadsTotal    = "uploads_total"
+	MetricNameUploadBytes     = "upload_bytes_total"
+	MetricNameErrorsTotal     = "errors_total"
+)
+
+// --- Metric labels ---
+
+const (
+	MetricLabelMethod    = "method"
+	MetricLabelRoute     = "route"
+	MetricLabelStatus    = "status"
+	MetricLabelErrorCode = "error_code"
+)
+
+// --- Metric help strings ---
+
+const (
+	MetricHelpRequests    = "Total number of HTTP requests"
+	MetricHelpUploads     = "Total number of successful file uploads"
+	MetricHelpUploadBytes = "Total bytes uploaded successfully"
+	MetricHelpErrors      = "Total number of error responses"
+)
+
+// --- Metric route label fallback ---
+
+const (
+	MetricRouteUnknown = "unknown"
+)

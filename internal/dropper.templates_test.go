@@ -243,6 +243,36 @@ func TestBuildBreadcrumbs(t *testing.T) {
 				{Label: "docs", Path: "docs"},
 			},
 		},
+		{
+			"deep nesting 5 levels",
+			"a/b/c/d/e",
+			[]BreadcrumbSegment{
+				{Label: BreadcrumbRootLabel, Path: DefaultBrowsePath},
+				{Label: "a", Path: "a"},
+				{Label: "b", Path: "a/b"},
+				{Label: "c", Path: "a/b/c"},
+				{Label: "d", Path: "a/b/c/d"},
+				{Label: "e", Path: "a/b/c/d/e"},
+			},
+		},
+		{
+			"trailing slash normalized",
+			"docs/2026/",
+			[]BreadcrumbSegment{
+				{Label: BreadcrumbRootLabel, Path: DefaultBrowsePath},
+				{Label: "docs", Path: "docs"},
+				{Label: "2026", Path: "docs/2026"},
+			},
+		},
+		{
+			"double slash normalized",
+			"docs//2026",
+			[]BreadcrumbSegment{
+				{Label: BreadcrumbRootLabel, Path: DefaultBrowsePath},
+				{Label: "docs", Path: "docs"},
+				{Label: "2026", Path: "docs/2026"},
+			},
+		},
 	}
 
 	for _, tt := range tests {

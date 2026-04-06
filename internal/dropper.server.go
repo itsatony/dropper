@@ -32,6 +32,7 @@ func NewServer(cfg *Config, logger *slog.Logger, staticFS fs.FS, templateFS fs.F
 	r.Use(chiMiddleware.Recoverer)
 	r.Use(chiMiddleware.RequestID)
 	r.Use(chiMiddleware.RealIP)
+	r.Use(MetricsMiddleware)
 	r.Use(securityHeadersMiddleware)
 
 	// Create audit logger.

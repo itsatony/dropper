@@ -954,3 +954,135 @@ func TestHandleUpload_ToSubdir(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "in docs", string(data))
 }
+
+// --- DC-07 HTMX/Sorting/Breadcrumb tests ---
+
+func TestHandleListFiles_HTMXWithSortParams(t *testing.T) {
+	ts := testTemplateSet(t)
+	cfg := testDropperConfig(t)
+	handler := HandleListFiles(ts, cfg, authTestLogger())
+
+	req := httptest.NewRequest(http.MethodGet,
+		RouteFiles+"?"+QueryParamPath+"=.&"+QueryParamSortBy+"=size&"+QueryParamSortOrder+"=desc", nil)
+	req.Header.Set(HeaderHXRequest, HXRequestTrue)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Header().Get(HeaderContentType), ContentTypeHTML)
+
+	body := rec.Body.String()
+	// Should contain breadcrumbs partial.
+	assert.Contains(t, body, BreadcrumbRootLabel)
+	// Should contain file entries.
+	assert.Contains(t, body, "readme.txt")
+	// Should NOT contain full page layout.
+	assert.NotContains(t, body, "<!DOCTYPE")
+}
+
+func TestHandleListFiles_SortByDate(t *testing.T) {
+	ts := testTemplateSet(t)
+	cfg := testDropperConfig(t)
+	handler := HandleListFiles(ts, cfg, authTestLogger())
+
+	req := httptest.NewRequest(http.MethodGet,
+		RouteFiles+"?"+QueryParamPath+"=.&"+QueryParamSortBy+"=date&"+QueryParamSortOrder+"=asc", nil)
+	req.Header.Set(HeaderAccept, ContentTypeJSON)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var entries []FileEntry
+	err := json.NewDecoder(rec.Body).Decode(&entries)
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(entries), 3)
+
+	// Directories should still come first regardless of sort field.
+	var foundFile bool
+	for _, e := range entries {
+		if !e.IsDir {
+			foundFile = true
+		}
+		if foundFile {
+			assert.False(t, e.IsDir, "no directories should appear after files in sorted output")
+		}
+	}
+}
+
+func TestHandleMainPage_WithSortParams(t *testing.T) {
+	ts := testTemplateSet(t)
+	cfg := testDropperConfig(t)
+	handler := HandleMainPage(ts, cfg, authTestLogger())
+
+	req := httptest.NewRequest(http.MethodGet,
+		RouteRoot+"?"+QueryParamPath+"=.&"+QueryParamSortBy+"=size&"+QueryParamSortOrder+"=desc", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Header().Get(HeaderContentType), ContentTypeHTML)
+
+	body := rec.Body.String()
+	// Full page render should include layout and content.
+	assert.Contains(t, body, "<!DOCTYPE")
+	assert.Contains(t, body, "readme.txt")
+	assert.Contains(t, body, BreadcrumbRootLabel)
+}
+
+func TestHandleListFiles_HTMXSubdirBreadcrumbs(t *testing.T) {
+	ts := testTemplateSet(t)
+	cfg := testDropperConfig(t)
+
+	// Create nested directories.
+	require.NoError(t, os.MkdirAll(filepath.Join(cfg.RootDir, "docs", "2026"), DirPermissions))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(cfg.RootDir, "docs", "2026", "report.txt"),
+		[]byte("data"), FilePermissions))
+
+	handler := HandleListFiles(ts, cfg, authTestLogger())
+
+	req := httptest.NewRequest(http.MethodGet,
+		RouteFiles+"?"+QueryParamPath+"=docs/2026", nil)
+	req.Header.Set(HeaderHXRequest, HXRequestTrue)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	body := rec.Body.String()
+	// Breadcrumbs should contain Home, docs, and 2026 segments.
+	assert.Contains(t, body, BreadcrumbRootLabel)
+	assert.Contains(t, body, "docs")
+	assert.Contains(t, body, "2026")
+	// File list should contain the report.
+	assert.Contains(t, body, "report.txt")
+}
+
+func TestHandleListFiles_DefaultSortParams(t *testing.T) {
+	ts := testTemplateSet(t)
+	cfg := testDropperConfig(t)
+	handler := HandleListFiles(ts, cfg, authTestLogger())
+
+	// No sort params at all — should use defaults.
+	req := httptest.NewRequest(http.MethodGet,
+		RouteFiles+"?"+QueryParamPath+"=.", nil)
+	req.Header.Set(HeaderAccept, ContentTypeJSON)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var entries []FileEntry
+	err := json.NewDecoder(rec.Body).Decode(&entries)
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(entries), 3)
+
+	// Default sort is name asc — directories first, then alphabetical.
+	assert.True(t, entries[0].IsDir, "first entry should be a directory")
+}

@@ -912,3 +912,177 @@ func TestServer_AuditLog_RecordsOperations(t *testing.T) {
 	assert.True(t, actions[AuditActionDownload], "audit log should contain download action")
 	assert.True(t, actions[AuditActionMkdir], "audit log should contain mkdir action")
 }
+
+// --- DC-07 E2E tests ---
+
+func TestServer_FullUploadBrowseDownloadFlow(t *testing.T) {
+	initTestVersion(t)
+	cfg := testConfig(t)
+	srv, err := NewServer(cfg, testLogger(), nil, testTemplateFS())
+	require.NoError(t, err)
+
+	ts := httptest.NewServer(srv.Router())
+	defer ts.Close()
+
+	// Step 1: Login.
+	cookie := loginAndGetCookie(t, ts.URL, cfg.Dropper.Secret)
+
+	// Step 2: Upload a file.
+	uploadContent := "full flow test content 12345"
+	resp := serverMultipartUpload(t, ts.URL, cookie, ".", map[string][]byte{
+		"flow-test.txt": []byte(uploadContent),
+	})
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var uploadResp UploadResponse
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&uploadResp))
+	assert.Equal(t, 1, uploadResp.Uploaded)
+	assert.Equal(t, 0, uploadResp.Failed)
+	finalName := uploadResp.Results[0].FinalName
+	assert.NotEmpty(t, finalName)
+
+	// Step 3: List directory — verify file appears.
+	listReq, err := http.NewRequest(http.MethodGet,
+		ts.URL+RouteFiles+"?"+QueryParamPath+"=.", nil)
+	require.NoError(t, err)
+	listReq.AddCookie(cookie)
+	listReq.Header.Set(HeaderAccept, ContentTypeJSON)
+	listResp, err := noRedirectClient().Do(listReq)
+	require.NoError(t, err)
+	defer listResp.Body.Close()
+	assert.Equal(t, http.StatusOK, listResp.StatusCode)
+
+	var entries []FileEntry
+	require.NoError(t, json.NewDecoder(listResp.Body).Decode(&entries))
+
+	found := false
+	for _, e := range entries {
+		if e.Name == finalName {
+			found = true
+			assert.False(t, e.IsDir)
+			assert.Equal(t, int64(len(uploadContent)), e.Size)
+			break
+		}
+	}
+	assert.True(t, found, "uploaded file should appear in directory listing")
+
+	// Step 4: Download — verify content matches.
+	dlReq, err := http.NewRequest(http.MethodGet,
+		ts.URL+RouteFilesDownload+"?"+QueryParamPath+"="+finalName, nil)
+	require.NoError(t, err)
+	dlReq.AddCookie(cookie)
+	dlResp, err := noRedirectClient().Do(dlReq)
+	require.NoError(t, err)
+	defer dlResp.Body.Close()
+	assert.Equal(t, http.StatusOK, dlResp.StatusCode)
+
+	downloadedBytes, err := io.ReadAll(dlResp.Body)
+	require.NoError(t, err)
+	assert.Equal(t, uploadContent, string(downloadedBytes))
+}
+
+func TestServer_MetricsAfterActivity(t *testing.T) {
+	initTestVersion(t)
+	cfg := testConfig(t)
+	srv, err := NewServer(cfg, testLogger(), nil, testTemplateFS())
+	require.NoError(t, err)
+
+	ts := httptest.NewServer(srv.Router())
+	defer ts.Close()
+
+	// Login and upload a file.
+	cookie := loginAndGetCookie(t, ts.URL, cfg.Dropper.Secret)
+	resp := serverMultipartUpload(t, ts.URL, cookie, ".", map[string][]byte{
+		"metrics-e2e.txt": []byte("metrics test data"),
+	})
+	resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	// Check /metrics for upload and request counters.
+	metricsResp, err := http.Get(ts.URL + RouteMetrics)
+	require.NoError(t, err)
+	defer metricsResp.Body.Close()
+
+	body, err := io.ReadAll(metricsResp.Body)
+	require.NoError(t, err)
+	bodyStr := string(body)
+
+	assert.Contains(t, bodyStr, MetricsNamespace+"_"+MetricNameRequestsTotal,
+		"metrics should contain request counter after activity")
+	assert.Contains(t, bodyStr, MetricsNamespace+"_"+MetricNameUploadsTotal,
+		"metrics should contain upload counter after activity")
+	assert.Contains(t, bodyStr, `route="`+RouteFilesUpload+`"`,
+		"metrics should contain upload route label")
+}
+
+func TestServer_SortingViaHTMX(t *testing.T) {
+	initTestVersion(t)
+	cfg := testConfig(t)
+	srv, err := NewServer(cfg, testLogger(), nil, testTemplateFS())
+	require.NoError(t, err)
+
+	ts := httptest.NewServer(srv.Router())
+	defer ts.Close()
+
+	cookie := loginAndGetCookie(t, ts.URL, cfg.Dropper.Secret)
+
+	// HTMX request with sort params.
+	req, err := http.NewRequest(http.MethodGet,
+		ts.URL+RouteFiles+"?"+QueryParamPath+"=.&"+QueryParamSortBy+"=size&"+QueryParamSortOrder+"=desc", nil)
+	require.NoError(t, err)
+	req.AddCookie(cookie)
+	req.Header.Set(HeaderHXRequest, HXRequestTrue)
+
+	resp, err := noRedirectClient().Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Contains(t, resp.Header.Get(HeaderContentType), ContentTypeHTML)
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	bodyStr := string(body)
+
+	// Should be a partial response (no DOCTYPE).
+	assert.NotContains(t, bodyStr, "<!DOCTYPE")
+	// Should contain breadcrumbs and file entries.
+	assert.Contains(t, bodyStr, BreadcrumbRootLabel)
+	assert.Contains(t, bodyStr, "hello.txt")
+}
+
+func TestServer_ErrorMetrics(t *testing.T) {
+	initTestVersion(t)
+	cfg := testConfig(t)
+	srv, err := NewServer(cfg, testLogger(), nil, testTemplateFS())
+	require.NoError(t, err)
+
+	ts := httptest.NewServer(srv.Router())
+	defer ts.Close()
+
+	cookie := loginAndGetCookie(t, ts.URL, cfg.Dropper.Secret)
+
+	// Trigger a 400 error (download without path param).
+	req, err := http.NewRequest(http.MethodGet, ts.URL+RouteFilesDownload, nil)
+	require.NoError(t, err)
+	req.AddCookie(cookie)
+	errResp, err := noRedirectClient().Do(req)
+	require.NoError(t, err)
+	errResp.Body.Close()
+	assert.Equal(t, http.StatusBadRequest, errResp.StatusCode)
+
+	// Verify error metric appeared.
+	metricsResp, err := http.Get(ts.URL + RouteMetrics)
+	require.NoError(t, err)
+	defer metricsResp.Body.Close()
+
+	body, err := io.ReadAll(metricsResp.Body)
+	require.NoError(t, err)
+	bodyStr := string(body)
+
+	assert.Contains(t, bodyStr, MetricsNamespace+"_"+MetricNameErrorsTotal,
+		"metrics should contain error counter after error")
+	assert.Contains(t, bodyStr, `error_code="`+ErrCodeBadRequest+`"`,
+		"metrics should contain bad_request error code label")
+}

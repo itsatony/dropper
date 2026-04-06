@@ -28,8 +28,9 @@ type ErrorBody struct {
 	Message string `json:"message"`
 }
 
-// RespondError writes a JSON error response.
+// RespondError writes a JSON error response and increments the error counter.
 func RespondError(w http.ResponseWriter, status int, code string, message string) {
+	ErrorsTotal.WithLabelValues(code).Inc()
 	RespondJSON(w, status, ErrorBody{
 		Code:    code,
 		Message: message,

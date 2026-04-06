@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
 // buildBrowseURL constructs a URL-safe browse redirect path.
@@ -260,7 +259,7 @@ func HandleMkdir(cfg *DropperConfig, audit *AuditLogger, logger *slog.Logger) ht
 				LogFieldError, err,
 			)
 
-			statusCode, errCode, safeMsg := mapFSError(err)
+			statusCode, errCode, safeMsg := MapDropperError(err)
 			RespondError(w, statusCode, errCode, safeMsg)
 			return
 		}
@@ -365,7 +364,7 @@ func HandleUpload(cfg *DropperConfig, audit *AuditLogger, logger *slog.Logger) h
 
 				results = append(results, UploadResult{
 					OriginalName: fh.Filename,
-					Error:        safeUploadErrorMessage(err),
+					Error:        SafeErrorMessage(err),
 				})
 				failed++
 
@@ -403,6 +402,10 @@ func HandleUpload(cfg *DropperConfig, audit *AuditLogger, logger *slog.Logger) h
 				)
 			}
 
+			// Record upload metrics.
+			UploadsTotal.Inc()
+			UploadBytesTotal.Add(float64(fileSize))
+
 			results = append(results, UploadResult{
 				OriginalName: fh.Filename,
 				FinalName:    finalName,
@@ -424,43 +427,3 @@ func HandleUpload(cfg *DropperConfig, audit *AuditLogger, logger *slog.Logger) h
 	}
 }
 
-// fsErrorMapping holds the HTTP status code and safe client-facing message for
-// a filesystem error matched by a substring of the error message.
-type fsErrorMapping struct {
-	substring  string
-	statusCode int
-	errCode    string
-	safeMsg    string
-}
-
-// fsErrorMappings defines the ordered error-to-HTTP-response mappings.
-// First match wins. The safe message is returned to the client instead of the
-// raw error string, preventing internal path information from leaking.
-var fsErrorMappings = []fsErrorMapping{
-	{ErrMsgPathTraversal, http.StatusForbidden, ErrCodeForbidden, ErrMsgPathTraversal},
-	{ErrMsgReadonlyMode, http.StatusForbidden, ErrCodeReadonly, ErrMsgReadonlyMode},
-	{ErrMsgExtNotAllowed, http.StatusBadRequest, ErrCodeExtNotAllowed, ErrMsgExtNotAllowed},
-	{ErrMsgNotDirectory, http.StatusBadRequest, ErrCodeBadRequest, ErrMsgNotDirectory},
-	{ErrMsgFileTooLarge, http.StatusRequestEntityTooLarge, ErrCodeFileTooLarge, ErrMsgFileTooLarge},
-	{ErrMsgCreateDir, http.StatusInternalServerError, ErrCodeInternal, ErrMsgCreateDir},
-	{ErrMsgWriteFile, http.StatusInternalServerError, ErrCodeInternal, ErrMsgWriteFile},
-}
-
-// mapFSError maps a filesystem operation error to an HTTP status code, error
-// code, and a safe client-facing message (never the raw error string).
-func mapFSError(err error) (int, string, string) {
-	msg := err.Error()
-	for _, m := range fsErrorMappings {
-		if strings.Contains(msg, m.substring) {
-			return m.statusCode, m.errCode, m.safeMsg
-		}
-	}
-	return http.StatusInternalServerError, ErrCodeInternal, ErrMsgWriteFile
-}
-
-// safeUploadErrorMessage returns a client-safe error message for an upload
-// file error, stripping any internal path information.
-func safeUploadErrorMessage(err error) string {
-	_, _, safeMsg := mapFSError(err)
-	return safeMsg
-}
