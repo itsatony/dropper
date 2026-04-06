@@ -17,7 +17,7 @@ type DiskUsageInfo struct {
 
 // HealthResponse is the /healthz response body.
 type HealthResponse struct {
-	Status string        `json:"status"`
+	Status string         `json:"status"`
 	Disk   *DiskUsageInfo `json:"disk,omitempty"`
 }
 

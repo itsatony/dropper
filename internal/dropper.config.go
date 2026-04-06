@@ -16,16 +16,16 @@ type Config struct {
 
 // DropperConfig contains all dropper-specific configuration.
 type DropperConfig struct {
-	ListenPort        int            `mapstructure:"listen_port" validate:"required,min=1,max=65535"`
-	Secret            string         `mapstructure:"secret" validate:"required,min=8"`
-	SessionTTL        string         `mapstructure:"session_ttl" validate:"required"`
-	RateLimitLogin    int            `mapstructure:"rate_limit_login" validate:"required,min=1,max=100"`
-	RootDir           string         `mapstructure:"root_dir" validate:"required"`
-	Readonly          bool           `mapstructure:"readonly"`
-	MaxUploadBytes    int64          `mapstructure:"max_upload_bytes" validate:"required,min=1024"`
-	AllowedExtensions []string       `mapstructure:"allowed_extensions"`
-	AuditLogPath      string         `mapstructure:"audit_log_path" validate:"required"`
-	Logging           LoggingConfig  `mapstructure:"logging" validate:"required"`
+	ListenPort        int           `mapstructure:"listen_port" validate:"required,min=1,max=65535"`
+	Secret            string        `mapstructure:"secret" validate:"required,min=8"`
+	SessionTTL        string        `mapstructure:"session_ttl" validate:"required"`
+	RateLimitLogin    int           `mapstructure:"rate_limit_login" validate:"required,min=1,max=100"`
+	RootDir           string        `mapstructure:"root_dir" validate:"required"`
+	Readonly          bool          `mapstructure:"readonly"`
+	MaxUploadBytes    int64         `mapstructure:"max_upload_bytes" validate:"required,min=1024"`
+	AllowedExtensions []string      `mapstructure:"allowed_extensions"`
+	AuditLogPath      string        `mapstructure:"audit_log_path" validate:"required"`
+	Logging           LoggingConfig `mapstructure:"logging" validate:"required"`
 }
 
 // LoggingConfig contains logging configuration.
