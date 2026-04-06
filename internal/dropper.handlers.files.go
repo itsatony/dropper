@@ -36,17 +36,19 @@ func HandleMainPage(ts *TemplateSet, cfg *DropperConfig, logger *slog.Logger) ht
 
 		entries, err := ListDirectory(cfg.RootDir, relPath, sortBy, sortOrder)
 		if err != nil {
+			statusCode, errCode, safeMsg := MapDropperError(err)
+
 			logger.Warn(LogMsgBrowseDenied,
 				LogFieldBrowsePath, relPath,
 				LogFieldError, err,
 			)
 
 			if wantsJSON(r) {
-				RespondError(w, http.StatusForbidden, ErrCodeForbidden, ErrMsgBrowsePath)
+				RespondError(w, statusCode, errCode, safeMsg)
 				return
 			}
 
-			// Render main page with error at root — show empty state with 403.
+			// Render main page with error at root — show empty state.
 			data := PageData{
 				CurrentPath: DefaultBrowsePath,
 				Breadcrumbs: BuildBreadcrumbs(DefaultBrowsePath),
@@ -55,7 +57,7 @@ func HandleMainPage(ts *TemplateSet, cfg *DropperConfig, logger *slog.Logger) ht
 				Readonly:    cfg.Readonly,
 				Error:       ErrMsgBrowsePath,
 			}
-			if renderErr := ts.RenderPage(w, PageMain, http.StatusForbidden, data); renderErr != nil {
+			if renderErr := ts.RenderPage(w, PageMain, statusCode, data); renderErr != nil {
 				logger.Error(ErrMsgTemplateRender, LogFieldError, renderErr)
 			}
 			return
@@ -99,13 +101,15 @@ func HandleListFiles(ts *TemplateSet, cfg *DropperConfig, logger *slog.Logger) h
 
 		entries, err := ListDirectory(cfg.RootDir, relPath, sortBy, sortOrder)
 		if err != nil {
+			statusCode, errCode, safeMsg := MapDropperError(err)
+
 			logger.Warn(LogMsgBrowseDenied,
 				LogFieldBrowsePath, relPath,
 				LogFieldError, err,
 			)
 
 			if wantsJSON(r) {
-				RespondError(w, http.StatusForbidden, ErrCodeForbidden, ErrMsgBrowsePath)
+				RespondError(w, statusCode, errCode, safeMsg)
 				return
 			}
 
@@ -120,7 +124,7 @@ func HandleListFiles(ts *TemplateSet, cfg *DropperConfig, logger *slog.Logger) h
 					Error:       ErrMsgBrowsePath,
 				}
 				w.Header().Set(HeaderContentType, ContentTypeHTML)
-				w.WriteHeader(http.StatusForbidden)
+				w.WriteHeader(statusCode)
 				if renderErr := ts.RenderPartial(w, PageMain, BlockBreadcrumbs, errData); renderErr != nil {
 					logger.Error(ErrMsgTemplateRender, LogFieldError, renderErr)
 					return
@@ -187,17 +191,20 @@ func HandleDownload(cfg *DropperConfig, audit *AuditLogger, logger *slog.Logger)
 		safePath, err := SafePath(cfg.RootDir, relPath)
 		if err != nil {
 			logger.Warn(LogMsgPathDenied, LogFieldPath, relPath)
-			RespondError(w, http.StatusForbidden, ErrCodeForbidden, ErrMsgPathTraversal)
+			statusCode, errCode, safeMsg := MapDropperError(err)
+			RespondError(w, statusCode, errCode, safeMsg)
 			return
 		}
 
 		info, err := os.Stat(safePath)
 		if err != nil {
-			RespondError(w, http.StatusNotFound, ErrCodeNotFound, ErrMsgFileStat)
+			de := NewFileStatError(err)
+			RespondError(w, de.StatusCode, de.Code, de.SafeMsg)
 			return
 		}
 		if info.IsDir() {
-			RespondError(w, http.StatusBadRequest, ErrCodeBadRequest, ErrMsgNotFile)
+			de := NewNotFileError()
+			RespondError(w, de.StatusCode, de.Code, de.SafeMsg)
 			return
 		}
 
@@ -244,18 +251,18 @@ func HandleMkdir(cfg *DropperConfig, audit *AuditLogger, logger *slog.Logger) ht
 			return
 		}
 
-		sanitizedName := SanitizeFilename(name)
-
-		err := CreateDirectory(cfg.RootDir, relPath, sanitizedName, cfg.Readonly, logger)
+		sanitizedName, err := CreateDirectory(cfg.RootDir, relPath, name, cfg.Readonly, logger)
 		if err != nil {
-			entry := NewAuditEntry(r, AuditActionMkdir, filepath.Join(relPath, sanitizedName))
+			// Use the raw name for audit path since CreateDirectory failed before mkdir.
+			auditName := SanitizeFilename(name)
+			entry := NewAuditEntry(r, AuditActionMkdir, filepath.Join(relPath, auditName))
 			entry.Success = false
-			entry.Error = err.Error()
+			entry.Error = SafeErrorMessage(err)
 			audit.Log(entry)
 
 			logger.Warn(LogMsgMkdirFailed,
 				LogFieldPath, relPath,
-				LogFieldFilename, sanitizedName,
+				LogFieldFilename, auditName,
 				LogFieldError, err,
 			)
 
@@ -359,7 +366,7 @@ func HandleUpload(cfg *DropperConfig, audit *AuditLogger, logger *slog.Logger) h
 			if err != nil {
 				entry := NewAuditEntry(r, AuditActionUpload, filepath.Join(relPath, filename))
 				entry.Success = false
-				entry.Error = err.Error()
+				entry.Error = SafeErrorMessage(err)
 				audit.Log(entry)
 
 				results = append(results, UploadResult{
@@ -376,11 +383,12 @@ func HandleUpload(cfg *DropperConfig, audit *AuditLogger, logger *slog.Logger) h
 				continue
 			}
 
-			// Get actual written size by statting the file directly.
+			// Get actual written size by statting the file through SafePath.
 			var fileSize int64
-			diskPath := filepath.Join(cfg.RootDir, relPath, finalName)
-			if info, statErr := os.Stat(diskPath); statErr == nil {
-				fileSize = info.Size()
+			if diskPath, pathErr := SafePath(cfg.RootDir, filepath.Join(relPath, finalName)); pathErr == nil {
+				if info, statErr := os.Stat(diskPath); statErr == nil {
+					fileSize = info.Size()
+				}
 			}
 
 			entry := NewAuditEntry(r, AuditActionUpload, filepath.Join(relPath, finalName))

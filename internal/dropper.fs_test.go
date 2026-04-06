@@ -2,6 +2,7 @@ package dropper
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -560,8 +561,9 @@ func TestCreateDirectory(t *testing.T) {
 
 	t.Run("successful creation", func(t *testing.T) {
 		root := t.TempDir()
-		err := CreateDirectory(root, "", "newdir", false, logger)
+		name, err := CreateDirectory(root, "", "newdir", false, logger)
 		require.NoError(t, err)
+		assert.Equal(t, "newdir", name)
 
 		info, err := os.Stat(filepath.Join(root, "newdir"))
 		require.NoError(t, err)
@@ -570,18 +572,19 @@ func TestCreateDirectory(t *testing.T) {
 
 	t.Run("readonly mode rejects", func(t *testing.T) {
 		root := t.TempDir()
-		err := CreateDirectory(root, "", "newdir", true, logger)
+		_, err := CreateDirectory(root, "", "newdir", true, logger)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), ErrMsgReadonlyMode)
+		assert.True(t, errors.Is(err, ErrReadonlyMode))
 
 		_, err = os.Stat(filepath.Join(root, "newdir"))
 		assert.True(t, os.IsNotExist(err))
 	})
 
-	t.Run("name sanitized", func(t *testing.T) {
+	t.Run("name sanitized and returned", func(t *testing.T) {
 		root := t.TempDir()
-		err := CreateDirectory(root, "", "my dir (test)", false, logger)
+		name, err := CreateDirectory(root, "", "my dir (test)", false, logger)
 		require.NoError(t, err)
+		assert.Equal(t, "my_dir__test_", name)
 
 		info, err := os.Stat(filepath.Join(root, "my_dir__test_"))
 		require.NoError(t, err)
@@ -590,26 +593,27 @@ func TestCreateDirectory(t *testing.T) {
 
 	t.Run("parent path jailed", func(t *testing.T) {
 		root := t.TempDir()
-		err := CreateDirectory(root, "../etc", "escape", false, logger)
+		_, err := CreateDirectory(root, "../etc", "escape", false, logger)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), ErrMsgPathTraversal)
+		assert.True(t, errors.Is(err, ErrPathTraversal))
 	})
 
 	t.Run("already exists returns error", func(t *testing.T) {
 		root := t.TempDir()
 		require.NoError(t, os.Mkdir(filepath.Join(root, "existing"), DirPermissions))
 
-		err := CreateDirectory(root, "", "existing", false, logger)
+		_, err := CreateDirectory(root, "", "existing", false, logger)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), ErrMsgCreateDir)
+		assert.True(t, errors.Is(err, ErrCreateDir))
 	})
 
 	t.Run("nested creation in subdirectory", func(t *testing.T) {
 		root := t.TempDir()
 		require.NoError(t, os.Mkdir(filepath.Join(root, "parent"), DirPermissions))
 
-		err := CreateDirectory(root, "parent", "child", false, logger)
+		name, err := CreateDirectory(root, "parent", "child", false, logger)
 		require.NoError(t, err)
+		assert.Equal(t, "child", name)
 
 		info, err := os.Stat(filepath.Join(root, "parent", "child"))
 		require.NoError(t, err)

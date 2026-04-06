@@ -13,17 +13,16 @@ var (
 	ErrPathResolution = errors.New(ErrMsgPathResolution)
 	ErrReadonlyMode   = errors.New(ErrMsgReadonlyMode)
 	ErrExtNotAllowed  = errors.New(ErrMsgExtNotAllowed)
+	ErrNotFound       = errors.New(ErrMsgNotFound)
 	ErrNotDirectory   = errors.New(ErrMsgNotDirectory)
 	ErrNotFile        = errors.New(ErrMsgNotFile)
 	ErrFileTooLarge   = errors.New(ErrMsgFileTooLarge)
 	ErrFileExists     = errors.New(ErrMsgFileExists)
-	ErrInvalidFilename = errors.New(ErrMsgInvalidFilename)
 	ErrListDir        = errors.New(ErrMsgListDir)
 	ErrCreateDir      = errors.New(ErrMsgCreateDir)
 	ErrWriteFile      = errors.New(ErrMsgWriteFile)
 	ErrTempFile       = errors.New(ErrMsgTempFile)
 	ErrRenameFile     = errors.New(ErrMsgRenameFile)
-	ErrBodyTooLarge   = errors.New(ErrMsgBodyTooLarge)
 	ErrFileStat       = errors.New(ErrMsgFileStat)
 )
 
@@ -52,10 +51,18 @@ func (e *DropperError) Error() string {
 	return e.SafeMsg
 }
 
-// Unwrap returns the sentinel error so errors.Is(err, ErrPathTraversal) works
-// through arbitrary wrapping depth.
-func (e *DropperError) Unwrap() error {
-	return e.Sentinel
+// Unwrap returns both the sentinel and the wrapped causal error, supporting
+// Go 1.20+ multi-unwrap. This allows errors.Is() to match the sentinel
+// (e.g. ErrPathTraversal) AND the underlying OS error (e.g. fs.ErrNotExist).
+func (e *DropperError) Unwrap() []error {
+	errs := make([]error, 0, 2)
+	if e.Sentinel != nil {
+		errs = append(errs, e.Sentinel)
+	}
+	if e.Wrapped != nil {
+		errs = append(errs, e.Wrapped)
+	}
+	return errs
 }
 
 // NewDropperError creates a DropperError with full control over all fields.
@@ -89,6 +96,11 @@ func NewReadonlyError() *DropperError {
 // NewExtNotAllowedError returns a 400 Bad Request error for rejected extensions.
 func NewExtNotAllowedError() *DropperError {
 	return NewDropperError(ErrExtNotAllowed, http.StatusBadRequest, ErrCodeExtNotAllowed, ErrMsgExtNotAllowed, nil)
+}
+
+// NewNotFoundError returns a 404 error when a path does not exist.
+func NewNotFoundError(wrapped error) *DropperError {
+	return NewDropperError(ErrNotFound, http.StatusNotFound, ErrCodeNotFound, ErrMsgNotFound, wrapped)
 }
 
 // NewNotDirectoryError returns a 400 Bad Request error when a directory was expected.
@@ -148,7 +160,7 @@ func MapDropperError(err error) (statusCode int, errCode string, safeMsg string)
 	if errors.As(err, &de) {
 		return de.StatusCode, de.Code, de.SafeMsg
 	}
-	return http.StatusInternalServerError, ErrCodeInternal, ErrMsgWriteFile
+	return http.StatusInternalServerError, ErrCodeInternal, ErrMsgInternal
 }
 
 // SafeErrorMessage returns only the client-safe message from an error,

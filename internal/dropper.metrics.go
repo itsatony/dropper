@@ -51,9 +51,11 @@ func MetricsMiddleware(next http.Handler) http.Handler {
 		ww := chiMiddleware.NewWrapResponseWriter(w, r.ProtoMajor)
 		next.ServeHTTP(ww, r)
 
-		routePattern := chi.RouteContext(r.Context()).RoutePattern()
-		if routePattern == "" {
-			routePattern = MetricRouteUnknown
+		routePattern := MetricRouteUnknown
+		if rctx := chi.RouteContext(r.Context()); rctx != nil {
+			if pattern := rctx.RoutePattern(); pattern != "" {
+				routePattern = pattern
+			}
 		}
 
 		RequestsTotal.WithLabelValues(

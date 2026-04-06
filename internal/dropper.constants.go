@@ -249,6 +249,7 @@ const (
 	ErrMsgWriteFile       = "failed to write file"
 	ErrMsgTempFile        = "failed to create temp file"
 	ErrMsgRenameFile      = "failed to rename file into place"
+	ErrMsgNotFound        = "path not found"
 	ErrMsgNotDirectory    = "path is not a directory"
 	ErrMsgNotFile         = "path is not a file"
 	ErrMsgFileTooLarge    = "file exceeds maximum upload size"
@@ -258,6 +259,7 @@ const (
 	ErrMsgFileStat        = "failed to stat file"
 	ErrMsgBodyTooLarge    = "request body exceeds maximum size"
 	ErrMsgMissingParam    = "required parameter missing"
+	ErrMsgInternal        = "internal server error"
 )
 
 // --- Filesystem error codes ---

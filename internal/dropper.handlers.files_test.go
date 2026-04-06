@@ -277,7 +277,7 @@ func TestHandleListFiles_NonexistentDir(t *testing.T) {
 
 	handler.ServeHTTP(rec, req)
 
-	assert.Equal(t, http.StatusForbidden, rec.Code)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 func TestHandleListFiles_InvalidSortParams(t *testing.T) {

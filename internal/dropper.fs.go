@@ -232,6 +232,9 @@ func ListDirectory(rootDir, relPath, sortBy, sortOrder string) ([]FileEntry, err
 
 	info, err := os.Stat(safePath)
 	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, NewNotFoundError(err)
+		}
 		return nil, NewListDirError(err)
 	}
 	if !info.IsDir() {
@@ -455,10 +458,11 @@ func atomicPlaceRename(dir, desiredName, tmpPath string, logger *slog.Logger) (s
 }
 
 // CreateDirectory creates a new subdirectory within rootDir.
-// The directory name is sanitized and the parent path is validated via SafePath.
-func CreateDirectory(rootDir, relParentPath, name string, readonly bool, logger *slog.Logger) error {
+// The directory name is sanitized internally and the sanitized name is returned.
+// The parent path is validated via SafePath.
+func CreateDirectory(rootDir, relParentPath, name string, readonly bool, logger *slog.Logger) (string, error) {
 	if readonly {
-		return NewReadonlyError()
+		return "", NewReadonlyError()
 	}
 
 	sanitized := SanitizeFilename(name)
@@ -466,31 +470,31 @@ func CreateDirectory(rootDir, relParentPath, name string, readonly bool, logger 
 	safeParent, err := SafePath(rootDir, relParentPath)
 	if err != nil {
 		logger.Warn(LogMsgPathDenied, LogFieldPath, relParentPath)
-		return err
+		return "", err
 	}
 
 	info, err := os.Stat(safeParent)
 	if err != nil {
-		return NewCreateDirError(err)
+		return "", NewCreateDirError(err)
 	}
 	if !info.IsDir() {
-		return NewNotDirectoryError()
+		return "", NewNotDirectoryError()
 	}
 
 	// Build the relative path for the new directory and re-validate.
 	newRelPath := filepath.Join(relParentPath, sanitized)
 	newSafePath, err := SafePath(rootDir, newRelPath)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	if err := os.Mkdir(newSafePath, DirPermissions); err != nil {
-		return NewCreateDirError(err)
+		return "", NewCreateDirError(err)
 	}
 
 	logger.Info(LogMsgDirCreated,
 		LogFieldFilename, sanitized,
 		LogFieldPath, relParentPath)
 
-	return nil
+	return sanitized, nil
 }

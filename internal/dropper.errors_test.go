@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -79,9 +80,30 @@ func TestDropperError_As_Extraction(t *testing.T) {
 	assert.Equal(t, ErrMsgReadonlyMode, de.SafeMsg)
 }
 
-func TestDropperError_Unwrap(t *testing.T) {
-	de := NewPathTraversalError()
-	assert.Equal(t, ErrPathTraversal, de.Unwrap())
+func TestDropperError_Unwrap_MultiError(t *testing.T) {
+	inner := fmt.Errorf("os error")
+	de := NewWriteFileError(inner)
+
+	errs := de.Unwrap()
+	assert.Len(t, errs, 2, "should return both sentinel and wrapped")
+	assert.Equal(t, ErrWriteFile, errs[0])
+	assert.Equal(t, inner, errs[1])
+
+	// Sentinel-only error (no wrapped) returns single-element slice.
+	de2 := NewPathTraversalError()
+	errs2 := de2.Unwrap()
+	assert.Len(t, errs2, 1)
+	assert.Equal(t, ErrPathTraversal, errs2[0])
+}
+
+func TestDropperError_Unwrap_CausalChain(t *testing.T) {
+	// errors.Is should match both sentinel AND the wrapped causal error.
+	inner := fmt.Errorf("wrapped: %w", os.ErrPermission)
+	de := NewWriteFileError(inner)
+
+	assert.True(t, errors.Is(de, ErrWriteFile), "should match sentinel")
+	assert.True(t, errors.Is(de, os.ErrPermission), "should match wrapped causal error")
+	assert.False(t, errors.Is(de, ErrPathTraversal), "should not match unrelated sentinel")
 }
 
 func TestMapDropperError_AllSentinels(t *testing.T) {
@@ -124,7 +146,7 @@ func TestMapDropperError_UnknownError(t *testing.T) {
 
 	assert.Equal(t, http.StatusInternalServerError, status)
 	assert.Equal(t, ErrCodeInternal, code)
-	assert.Equal(t, ErrMsgWriteFile, msg)
+	assert.Equal(t, ErrMsgInternal, msg)
 }
 
 func TestMapDropperError_WrappedDropperError(t *testing.T) {
@@ -145,7 +167,7 @@ func TestSafeErrorMessage(t *testing.T) {
 		want string
 	}{
 		{"dropper error returns safe msg", NewPathTraversalError(), ErrMsgPathTraversal},
-		{"unknown error returns generic", fmt.Errorf("internal path /tmp/x"), ErrMsgWriteFile},
+		{"unknown error returns generic", fmt.Errorf("internal path /tmp/x"), ErrMsgInternal},
 		{"wrapped dropper error", fmt.Errorf("ctx: %w", NewReadonlyError()), ErrMsgReadonlyMode},
 	}
 

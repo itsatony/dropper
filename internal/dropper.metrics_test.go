@@ -192,10 +192,14 @@ func TestMetrics_UploadCounter_IncrementedByUpload(t *testing.T) {
 	assert.Contains(t, bodyStr, MetricsNamespace+"_"+MetricNameUploadBytes,
 		"metrics should contain upload bytes counter")
 
-	// Find the actual counter line and verify it's non-zero.
+	// Verify upload counter has a positive value (not just "0").
+	uploadCounterPrefix := MetricsNamespace + "_" + MetricNameUploadsTotal + " "
 	for _, line := range strings.Split(bodyStr, "\n") {
-		if strings.HasPrefix(line, MetricsNamespace+"_"+MetricNameUploadsTotal+" ") {
-			assert.NotContains(t, line, " 0", "upload counter should be > 0")
+		if strings.HasPrefix(line, uploadCounterPrefix) {
+			// Counter line format: "dropper_uploads_total 1"
+			valueStr := strings.TrimPrefix(line, uploadCounterPrefix)
+			assert.NotEqual(t, "0", strings.TrimSpace(valueStr),
+				"upload counter should be greater than 0")
 		}
 	}
 }
