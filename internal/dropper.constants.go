@@ -48,8 +48,9 @@ const (
 	EnvMaxUploadBytes = "DROPPER_MAX_UPLOAD_BYTES"
 	EnvAllowedExts    = "DROPPER_ALLOWED_EXTENSIONS"
 	EnvAuditLogPath   = "DROPPER_AUDIT_LOG_PATH"
-	EnvLoggingLevel   = "DROPPER_LOGGING_LEVEL"
-	EnvLoggingFormat  = "DROPPER_LOGGING_FORMAT"
+	EnvLoggingLevel  = "DROPPER_LOGGING_LEVEL"
+	EnvLoggingFormat = "DROPPER_LOGGING_FORMAT"
+	EnvLoggingOutput = "DROPPER_LOGGING_OUTPUT"
 )
 
 // EnvSecret is the environment variable name for the auth secret.

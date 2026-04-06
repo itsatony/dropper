@@ -47,8 +47,7 @@ The setup script detects your container runtime, prompts for configuration, buil
 ```bash
 git clone https://github.com/vAudience/dropper.git
 cd dropper
-cp configs/dropper.example.yaml configs/dropper.local.yaml
-# Edit configs/dropper.local.yaml — set your secret
+# Edit configs/dropper.example.yaml — set your secret
 make run
 ```
 
@@ -71,7 +70,7 @@ Config is loaded from YAML file + env var overrides. Env vars take precedence.
 | `dropper.audit_log_path` | `DROPPER_AUDIT_LOG_PATH` | `dropper_audit.log` | Audit log file path |
 | `dropper.logging.level` | `DROPPER_LOGGING_LEVEL` | `info` | Log level (debug, info, warn, error) |
 | `dropper.logging.format` | `DROPPER_LOGGING_FORMAT` | `json` | Log format (json, console) |
-| `dropper.logging.output` | — | `stdout` | Log output (stdout, stderr) |
+| `dropper.logging.output` | `DROPPER_LOGGING_OUTPUT` | `stdout` | Log output (stdout, stderr) |
 
 ---
 
@@ -200,7 +199,7 @@ static/                      -- vendored HTMX, CSS, JS
 - **Path traversal prevention:** Every client-supplied path goes through Clean, Abs, HasPrefix, EvalSymlinks, then re-check. Rejection returns 403 with zero path info in the response.
 - **Upload safety:** Temp dir write, then rename into place. Filename sanitized to `[a-zA-Z0-9_.-]`. Extension whitelist checked before any disk write. `http.MaxBytesReader` enforced.
 - **Authentication:** `crypto/subtle.ConstantTimeCompare` for secret verification. `crypto/rand` for 32-byte session tokens. Rate-limited login.
-- **Security headers:** `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Content-Security-Policy: default-src 'self'`.
+- **Security headers:** `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'`.
 
 ---
 

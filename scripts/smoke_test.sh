@@ -79,7 +79,16 @@ echo ""
 bold "Using runtime: ${RUNTIME}"
 bold "Building image ${DOCKER_IMAGE}:${DOCKER_TAG}..."
 
-${RUNTIME} build -q -t "${DOCKER_IMAGE}:${DOCKER_TAG}" . >/dev/null
+# Pass version build args (same as Makefile)
+SMOKE_GIT_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")"
+SMOKE_GIT_TAG="v$(grep '  version:' versions.yaml | sed 's/.*"\(.*\)"/\1/')"
+SMOKE_BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+${RUNTIME} build -q \
+    --build-arg "GIT_COMMIT=${SMOKE_GIT_COMMIT}" \
+    --build-arg "GIT_TAG=${SMOKE_GIT_TAG}" \
+    --build-arg "BUILD_TIME=${SMOKE_BUILD_TIME}" \
+    -t "${DOCKER_IMAGE}:${DOCKER_TAG}" . >/dev/null
 
 bold "Starting container ${CONTAINER_NAME} on port ${TEST_PORT}..."
 

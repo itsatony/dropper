@@ -47,7 +47,7 @@ docker-build:
 
 docker-run:
 	@mkdir -p data
-	docker run --rm --name $(CONTAINER_NAME) \
+	docker run -d --name $(CONTAINER_NAME) \
 		-p 8080:8080 \
 		-v $(PWD)/configs/dropper.example.yaml:/etc/dropper/dropper.yaml:ro \
 		-v $(PWD)/data:/data \
@@ -56,6 +56,7 @@ docker-run:
 
 docker-stop:
 	docker stop $(CONTAINER_NAME) 2>/dev/null || true
+	docker rm $(CONTAINER_NAME) 2>/dev/null || true
 
 docker-logs:
 	docker logs -f $(CONTAINER_NAME)

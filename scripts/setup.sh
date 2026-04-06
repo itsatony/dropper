@@ -88,6 +88,11 @@ main() {
     local generated_secret
     generated_secret="$(generate_secret)"
 
+    if [ -z "${generated_secret}" ]; then
+        red "Error: failed to generate random value from /dev/urandom."
+        exit 1
+    fi
+
     # --- Interactive prompts ---
     local secret port root_dir max_upload readonly_mode allowed_exts
 
@@ -99,7 +104,7 @@ main() {
         exit 1
     fi
 
-    prompt "Listen port" "${DEFAULT_PORT}"
+    prompt "Host port (container listens internally on 8080)" "${DEFAULT_PORT}"
     port="${REPLY}"
 
     if ! check_port "${port}"; then

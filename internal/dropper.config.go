@@ -102,6 +102,7 @@ func bindEnvVars(v *viper.Viper) {
 	_ = v.BindEnv(ConfigKeyAuditLogPath, EnvAuditLogPath)
 	_ = v.BindEnv(ConfigKeyLoggingLevel, EnvLoggingLevel)
 	_ = v.BindEnv(ConfigKeyLoggingFormat, EnvLoggingFormat)
+	_ = v.BindEnv(ConfigKeyLoggingOutput, EnvLoggingOutput)
 }
 
 // setDefaults sets default values for all config keys.

@@ -15,7 +15,7 @@ services:
       - ${DROPPER_DATA_DIR:-./data}:/data
       - dropper-audit:/var/log
     environment:
-      - DROPPER_SECRET=${DROPPER_SECRET:-change-me-in-production}
+      - DROPPER_SECRET=${DROPPER_SECRET:?Set DROPPER_SECRET environment variable}
     command: ["--config", "/etc/dropper/dropper.yaml"]
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
