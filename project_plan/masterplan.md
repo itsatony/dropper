@@ -105,3 +105,16 @@ Each cycle is a coherent, testable increment.
 - ADR-005: Symlink TOCTOU limitation documented
 - Documentation updated: README config table, CHANGELOG, CLAUDE.md
 - **Version:** 0.9.0
+
+## Cycle 10 — Spec Completion & Final Polish (DONE)
+- Directory upload with folder structure preservation (webkitGetAsEntry API, recursive traversal)
+- `SafeWriteFileWithRelPath`: per-component sanitization, intermediate dir creation, root jail enforcement
+- `HandleUpload` reads parallel `relpath` form fields for nested directory uploads
+- Disk usage footer in main view via async HTMX load from `/healthz`
+- HTMX content negotiation on `/healthz` (HTML partial vs JSON)
+- Last-directory auto-navigation via localStorage on page load
+- Upload progress bar (XHR `upload.onprogress`, CSS progress fill)
+- `.golangci.yml` linting config (errcheck, govet, staticcheck, gosec, gocritic, gofmt, misspell)
+- DC-10 tests: 20+ new tests (unit, handler, integration)
+- Coverage: 88.1% aggregate on internal/
+- **Version:** 0.10.0

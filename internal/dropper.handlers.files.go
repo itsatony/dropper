@@ -333,6 +333,9 @@ func HandleUpload(cfg *DropperConfig, audit *AuditLogger, logger *slog.Logger) h
 			return
 		}
 
+		// Read parallel relpath form fields for directory uploads.
+		relPaths := r.MultipartForm.Value[FormFieldRelPath]
+
 		results := make([]UploadResult, 0, len(files))
 		uploaded := 0
 		failed := 0
@@ -354,17 +357,41 @@ func HandleUpload(cfg *DropperConfig, audit *AuditLogger, logger *slog.Logger) h
 				filename = ClipboardFilename()
 			}
 
-			finalName, err := SafeWriteFile(
-				cfg.RootDir, relPath, filename, file,
-				cfg.MaxUploadBytes, cfg.AllowedExtensions,
-				cfg.Readonly, logger,
-			)
+			// Check if this file has a relative path from directory upload.
+			var fileRelPath string
+			if i < len(relPaths) {
+				fileRelPath = relPaths[i]
+			}
+
+			var finalName string
+			var actualRelDir string
+			if fileRelPath != "" {
+				// Directory upload: create intermediate dirs and write.
+				finalName, actualRelDir, err = SafeWriteFileWithRelPath(
+					cfg.RootDir, relPath, fileRelPath, filename, file,
+					cfg.MaxUploadBytes, cfg.AllowedExtensions,
+					cfg.Readonly, logger,
+				)
+			} else {
+				// Flat upload: write directly to current directory.
+				finalName, err = SafeWriteFile(
+					cfg.RootDir, relPath, filename, file,
+					cfg.MaxUploadBytes, cfg.AllowedExtensions,
+					cfg.Readonly, logger,
+				)
+			}
 			if closeErr := file.Close(); closeErr != nil {
 				logger.Warn(LogMsgFileHandleClose, LogFieldError, closeErr)
 			}
 
+			// Build the audit path: for directory uploads, include the nested dir.
+			auditRelDir := relPath
+			if actualRelDir != "" {
+				auditRelDir = filepath.Join(relPath, actualRelDir)
+			}
+
 			if err != nil {
-				entry := NewAuditEntry(r, AuditActionUpload, filepath.Join(relPath, filename))
+				entry := NewAuditEntry(r, AuditActionUpload, filepath.Join(auditRelDir, filename))
 				entry.Success = false
 				entry.Error = SafeErrorMessage(err)
 				audit.Log(entry)
@@ -377,7 +404,7 @@ func HandleUpload(cfg *DropperConfig, audit *AuditLogger, logger *slog.Logger) h
 
 				logger.Warn(LogMsgUploadFailed,
 					LogFieldFilename, filename,
-					LogFieldPath, relPath,
+					LogFieldPath, auditRelDir,
 					LogFieldError, err,
 				)
 				continue
@@ -385,13 +412,13 @@ func HandleUpload(cfg *DropperConfig, audit *AuditLogger, logger *slog.Logger) h
 
 			// Get actual written size by statting the file through SafePath.
 			var fileSize int64
-			if diskPath, pathErr := SafePath(cfg.RootDir, filepath.Join(relPath, finalName)); pathErr == nil {
+			if diskPath, pathErr := SafePath(cfg.RootDir, filepath.Join(auditRelDir, finalName)); pathErr == nil {
 				if info, statErr := os.Stat(diskPath); statErr == nil {
 					fileSize = info.Size()
 				}
 			}
 
-			entry := NewAuditEntry(r, AuditActionUpload, filepath.Join(relPath, finalName))
+			entry := NewAuditEntry(r, AuditActionUpload, filepath.Join(auditRelDir, finalName))
 			entry.FileSize = &fileSize
 			entry.Success = true
 			audit.Log(entry)
@@ -399,13 +426,13 @@ func HandleUpload(cfg *DropperConfig, audit *AuditLogger, logger *slog.Logger) h
 			if isClipboard && i == 0 {
 				logger.Info(LogMsgPasteUpload,
 					LogFieldFilename, finalName,
-					LogFieldPath, relPath,
+					LogFieldPath, auditRelDir,
 					LogFieldSize, fileSize,
 				)
 			} else {
 				logger.Info(LogMsgUploadSuccess,
 					LogFieldFilename, finalName,
-					LogFieldPath, relPath,
+					LogFieldPath, auditRelDir,
 					LogFieldSize, fileSize,
 				)
 			}

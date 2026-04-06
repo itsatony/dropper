@@ -12,12 +12,14 @@ Upload files via drag-and-drop or clipboard paste, browse and download from a lo
 
 ## Features
 
-- Drag-and-drop file upload (files and directories)
-- Clipboard paste for screenshots (Ctrl+V)
+- Drag-and-drop file upload (files and directories with folder structure preservation)
+- Clipboard paste for screenshots (Ctrl+V) with image preview
+- Upload progress bar with real-time percentage
 - Directory browsing with breadcrumb navigation
 - File download (click to download)
 - Directory creation
 - Bookmarks (localStorage)
+- Last-visited directory memory (auto-navigates on return)
 - Sorting by name, date, size
 - Read-only mode (config flag)
 - Pre-shared secret authentication with session cookies
@@ -25,6 +27,7 @@ Upload files via drag-and-drop or clipboard paste, browse and download from a lo
 - Audit logging (JSON lines, append-only)
 - Prometheus metrics (/metrics)
 - Health endpoint (/healthz with disk usage)
+- Disk usage footer in UI (auto-loaded)
 - Light/dark mode (system preference)
 - Single binary, no frontend build step
 

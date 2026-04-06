@@ -1086,3 +1086,150 @@ func TestHandleListFiles_DefaultSortParams(t *testing.T) {
 	// Default sort is name asc — directories first, then alphabetical.
 	assert.True(t, entries[0].IsDir, "first entry should be a directory")
 }
+
+// --- DC-10 Directory Upload handler tests ---
+
+// fileWithRelPath represents a file with an optional relative path for directory uploads.
+type fileWithRelPath struct {
+	name    string
+	relpath string
+	content []byte
+}
+
+// createMultipartBodyWithRelPaths builds a multipart body with file and relpath fields.
+func createMultipartBodyWithRelPaths(t *testing.T, files []fileWithRelPath) (*bytes.Buffer, string) {
+	t.Helper()
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+
+	for _, f := range files {
+		part, err := writer.CreateFormFile(FormFieldFile, f.name)
+		require.NoError(t, err)
+		_, err = part.Write(f.content)
+		require.NoError(t, err)
+
+		// Write the relpath field.
+		err = writer.WriteField(FormFieldRelPath, f.relpath)
+		require.NoError(t, err)
+	}
+	require.NoError(t, writer.Close())
+	return &buf, writer.FormDataContentType()
+}
+
+func TestHandleUpload_DirectoryUpload_PreservesStructure(t *testing.T) {
+	cfg := testUploadConfig(t)
+	audit, _ := testFileAuditLogger(t)
+	handler := HandleUpload(cfg, audit, authTestLogger())
+
+	files := []fileWithRelPath{
+		{name: "readme.md", relpath: "project/docs", content: []byte("# README")},
+		{name: "main.go", relpath: "project/src", content: []byte("package main")},
+	}
+	body, contentType := createMultipartBodyWithRelPaths(t, files)
+
+	req := httptest.NewRequest(http.MethodPost, RouteFilesUpload+"?"+QueryParamPath+"=.", body)
+	req.Header.Set(HeaderContentType, contentType)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var resp UploadResponse
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	assert.Equal(t, 2, resp.Uploaded)
+	assert.Equal(t, 0, resp.Failed)
+
+	// Verify nested directory structure was created.
+	docsContent, err := os.ReadFile(filepath.Join(cfg.RootDir, "project", "docs", "readme.md"))
+	require.NoError(t, err)
+	assert.Equal(t, "# README", string(docsContent))
+
+	srcContent, err := os.ReadFile(filepath.Join(cfg.RootDir, "project", "src", "main.go"))
+	require.NoError(t, err)
+	assert.Equal(t, "package main", string(srcContent))
+}
+
+func TestHandleUpload_DirectoryUpload_MixedFlatAndNested(t *testing.T) {
+	cfg := testUploadConfig(t)
+	audit, _ := testFileAuditLogger(t)
+	handler := HandleUpload(cfg, audit, authTestLogger())
+
+	files := []fileWithRelPath{
+		{name: "flat.txt", relpath: "", content: []byte("flat file")},
+		{name: "nested.txt", relpath: "subdir", content: []byte("nested file")},
+	}
+	body, contentType := createMultipartBodyWithRelPaths(t, files)
+
+	req := httptest.NewRequest(http.MethodPost, RouteFilesUpload+"?"+QueryParamPath+"=.", body)
+	req.Header.Set(HeaderContentType, contentType)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var resp UploadResponse
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	assert.Equal(t, 2, resp.Uploaded)
+
+	// Flat file in root.
+	flatContent, err := os.ReadFile(filepath.Join(cfg.RootDir, "flat.txt"))
+	require.NoError(t, err)
+	assert.Equal(t, "flat file", string(flatContent))
+
+	// Nested file in subdir.
+	nestedContent, err := os.ReadFile(filepath.Join(cfg.RootDir, "subdir", "nested.txt"))
+	require.NoError(t, err)
+	assert.Equal(t, "nested file", string(nestedContent))
+}
+
+func TestHandleUpload_DirectoryUpload_PathTraversalRejected(t *testing.T) {
+	cfg := testUploadConfig(t)
+	audit, _ := testFileAuditLogger(t)
+	handler := HandleUpload(cfg, audit, authTestLogger())
+
+	// All ".." components get sanitized to "_" by SanitizeFilename,
+	// so this won't actually escape root. But if only dots remain after
+	// sanitization and all become "_" (a fallback), the sanitized parts
+	// will be ["_", "_", "etc"]. The file should end up safely inside root.
+	files := []fileWithRelPath{
+		{name: "passwd.txt", relpath: "../../etc", content: []byte("evil")},
+	}
+	body, contentType := createMultipartBodyWithRelPaths(t, files)
+
+	req := httptest.NewRequest(http.MethodPost, RouteFilesUpload+"?"+QueryParamPath+"=.", body)
+	req.Header.Set(HeaderContentType, contentType)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	// Should succeed but file should be safely within root.
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var resp UploadResponse
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+
+	// Verify no files escaped outside root.
+	assert.Equal(t, 1, resp.Uploaded)
+}
+
+func TestHandleUpload_DirectoryUpload_ReadonlyRejected(t *testing.T) {
+	cfg := testUploadConfig(t)
+	cfg.Readonly = true
+	audit, _ := testFileAuditLogger(t)
+	handler := HandleUpload(cfg, audit, authTestLogger())
+
+	files := []fileWithRelPath{
+		{name: "file.txt", relpath: "subdir", content: []byte("blocked")},
+	}
+	body, contentType := createMultipartBodyWithRelPaths(t, files)
+
+	req := httptest.NewRequest(http.MethodPost, RouteFilesUpload+"?"+QueryParamPath+"=.", body)
+	req.Header.Set(HeaderContentType, contentType)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+}

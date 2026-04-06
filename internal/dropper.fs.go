@@ -462,6 +462,86 @@ func atomicPlaceRename(dir, desiredName, tmpPath string, logger *slog.Logger) (s
 	return resolvedName, nil
 }
 
+// SafeWriteFileWithRelPath handles uploads that include a relative path from
+// directory drag-and-drop. Each component of relPath is individually sanitized
+// via SanitizeFilename, then intermediate directories are created. The actual
+// file write is delegated to SafeWriteFile.
+//
+// Security (defense-in-depth):
+//  1. Split relPath on "/" separators
+//  2. Sanitize each component individually (strips "..", special chars)
+//  3. Validate joined target directory via SafePath (root jail)
+//  4. Create intermediate dirs with os.MkdirAll
+//  5. Delegate to SafeWriteFile for atomic file write
+//
+// Returns the final filename (may differ from input due to sanitization/collision)
+// and the sanitized relative directory path.
+func SafeWriteFileWithRelPath(rootDir, baseDir, relPath, filename string,
+	data io.Reader, maxBytes int64, allowedExts []string,
+	readonly bool, logger *slog.Logger) (finalName string, sanitizedRelDir string, err error) {
+
+	if readonly {
+		return "", "", NewReadonlyError()
+	}
+
+	// Reject empty relpath — caller should use SafeWriteFile for flat uploads.
+	if relPath == "" {
+		return "", "", NewInvalidRelPathError()
+	}
+
+	// Split on forward slash (browser always sends forward slashes).
+	parts := strings.Split(relPath, RelPathSeparator)
+
+	// Sanitize each path component individually.
+	sanitizedParts := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part == "" {
+			continue
+		}
+		sanitized := SanitizeFilename(part)
+		// SanitizeFilename returns "_" for "." and ".." — safe but we also
+		// skip empty-equivalent components.
+		if sanitized == FilenameFallback {
+			continue
+		}
+		sanitizedParts = append(sanitizedParts, sanitized)
+	}
+
+	// If all parts were stripped, invalid relpath.
+	if len(sanitizedParts) == 0 {
+		return "", "", NewInvalidRelPathError()
+	}
+
+	// Build the target directory: baseDir + sanitized relpath components.
+	sanitizedRelDir = strings.Join(sanitizedParts, string(filepath.Separator))
+	targetRelDir := filepath.Join(baseDir, sanitizedRelDir)
+
+	// Validate the full target path via SafePath (root jail check).
+	safeTargetDir, err := SafePath(rootDir, targetRelDir)
+	if err != nil {
+		logger.Warn(LogMsgPathDenied, LogFieldPath, targetRelDir)
+		return "", "", err
+	}
+
+	// Create intermediate directories.
+	if err := os.MkdirAll(safeTargetDir, DirPermissions); err != nil {
+		return "", "", NewCreateDirError(err)
+	}
+
+	logger.Debug(LogMsgDirUploadCreated,
+		LogFieldRelPath, sanitizedRelDir,
+		LogFieldPath, baseDir)
+
+	// Delegate to SafeWriteFile for the actual file write (sanitization,
+	// extension validation, collision resolution, atomic write).
+	finalName, err = SafeWriteFile(rootDir, targetRelDir, filename, data, maxBytes, allowedExts, readonly, logger)
+	if err != nil {
+		return "", sanitizedRelDir, err
+	}
+
+	return finalName, sanitizedRelDir, nil
+}
+
 // CreateDirectory creates a new subdirectory within rootDir.
 // The directory name is sanitized internally and the sanitized name is returned.
 // The parent path is validated via SafePath.

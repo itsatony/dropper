@@ -1,0 +1,28 @@
+linters:
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - gosec
+    - bodyclose
+    - gocritic
+    - gofmt
+    - misspell
+
+linters-settings:
+  gosec:
+    excludes:
+      # G304: File path from variable — dropper intentionally opens
+      # user-supplied paths after SafePath() root jail validation.
+      - G304
+      # G115: Integer overflow conversion — false positives on syscall
+      # Statfs fields (Frsize is always positive, fits in uint64) and
+      # FormatDiskSizeFloat where disk sizes fit in int64 range.
+      - G115
+      # G306: WriteFile permissions — test files use 0644 (config files,
+      # not secrets). Production code uses FilePermissions constant.
+      - G306
+
+issues:
+  exclude-dirs:
+    - vendor

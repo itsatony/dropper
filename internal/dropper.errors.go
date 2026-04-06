@@ -25,6 +25,7 @@ var (
 	ErrTempFile       = errors.New(ErrMsgTempFile)
 	ErrRenameFile     = errors.New(ErrMsgRenameFile)
 	ErrFileStat       = errors.New(ErrMsgFileStat)
+	ErrInvalidRelPath = errors.New(ErrMsgInvalidRelPath)
 )
 
 // DropperError is a typed error that carries HTTP response metadata alongside
@@ -157,6 +158,11 @@ func NewRenameFileError(wrapped error) *DropperError {
 // NewFileStatError returns a 404 error for stat failures on expected files.
 func NewFileStatError(wrapped error) *DropperError {
 	return NewDropperError(ErrFileStat, http.StatusNotFound, ErrCodeNotFound, ErrMsgFileStat, wrapped)
+}
+
+// NewInvalidRelPathError returns a 400 Bad Request error for invalid relative paths in directory uploads.
+func NewInvalidRelPathError() *DropperError {
+	return NewDropperError(ErrInvalidRelPath, http.StatusBadRequest, ErrCodeInvalidRelPath, ErrMsgInvalidRelPath, nil)
 }
 
 // MapDropperError extracts HTTP response fields from a DropperError.

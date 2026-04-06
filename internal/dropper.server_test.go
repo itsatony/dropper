@@ -1505,3 +1505,189 @@ func TestServer_RequestLogging_NoLogPaths(t *testing.T) {
 	assert.Contains(t, logOutput, RouteLogin,
 		"normal path should appear in request logs")
 }
+
+// =============================================================================
+// DC-10 Integration Tests
+// =============================================================================
+
+func TestIntegration_DirectoryUpload(t *testing.T) {
+	initTestVersion(t)
+	cfg := testConfig(t)
+
+	srv, err := NewServer(cfg, testLogger(), nil, testTemplateFS())
+	require.NoError(t, err)
+	t.Cleanup(func() { srv.sessionStore.Stop() })
+
+	ts := httptest.NewServer(srv.Router())
+	defer ts.Close()
+
+	client := ts.Client()
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+
+	// Step 1: Login.
+	loginData := url.Values{FormFieldLoginInput: {cfg.Dropper.Secret}}
+	loginResp, err := client.PostForm(ts.URL+RouteLogin, loginData)
+	require.NoError(t, err)
+	loginResp.Body.Close()
+	require.Equal(t, http.StatusSeeOther, loginResp.StatusCode)
+
+	cookies := loginResp.Cookies()
+	require.NotEmpty(t, cookies)
+
+	// Step 2: Upload files with directory structure.
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+
+	// File 1: project/src/main.go
+	part1, err := writer.CreateFormFile(FormFieldFile, "main.go")
+	require.NoError(t, err)
+	_, err = part1.Write([]byte("package main"))
+	require.NoError(t, err)
+	require.NoError(t, writer.WriteField(FormFieldRelPath, "project/src"))
+
+	// File 2: project/README.md
+	part2, err := writer.CreateFormFile(FormFieldFile, "README.md")
+	require.NoError(t, err)
+	_, err = part2.Write([]byte("# My Project"))
+	require.NoError(t, err)
+	require.NoError(t, writer.WriteField(FormFieldRelPath, "project"))
+
+	// File 3: flat file (no relpath)
+	part3, err := writer.CreateFormFile(FormFieldFile, "notes.txt")
+	require.NoError(t, err)
+	_, err = part3.Write([]byte("notes"))
+	require.NoError(t, err)
+	require.NoError(t, writer.WriteField(FormFieldRelPath, ""))
+
+	require.NoError(t, writer.Close())
+
+	uploadReq, err := http.NewRequest(http.MethodPost,
+		ts.URL+RouteFilesUpload+"?"+QueryParamPath+"=.", &body)
+	require.NoError(t, err)
+	uploadReq.Header.Set(HeaderContentType, writer.FormDataContentType())
+	for _, c := range cookies {
+		uploadReq.AddCookie(c)
+	}
+
+	uploadResp, err := client.Do(uploadReq)
+	require.NoError(t, err)
+	defer uploadResp.Body.Close()
+
+	assert.Equal(t, http.StatusOK, uploadResp.StatusCode)
+
+	var uploadResult UploadResponse
+	require.NoError(t, json.NewDecoder(uploadResp.Body).Decode(&uploadResult))
+	assert.Equal(t, 3, uploadResult.Uploaded)
+	assert.Equal(t, 0, uploadResult.Failed)
+
+	// Step 3: Verify directory structure on disk.
+	srcContent, err := os.ReadFile(filepath.Join(cfg.Dropper.RootDir, "project", "src", "main.go"))
+	require.NoError(t, err)
+	assert.Equal(t, "package main", string(srcContent))
+
+	readmeContent, err := os.ReadFile(filepath.Join(cfg.Dropper.RootDir, "project", "README.md"))
+	require.NoError(t, err)
+	assert.Equal(t, "# My Project", string(readmeContent))
+
+	notesContent, err := os.ReadFile(filepath.Join(cfg.Dropper.RootDir, "notes.txt"))
+	require.NoError(t, err)
+	assert.Equal(t, "notes", string(notesContent))
+
+	// Step 4: List nested directory via API.
+	listReq, err := http.NewRequest(http.MethodGet,
+		ts.URL+RouteFiles+"?"+QueryParamPath+"=project/src", nil)
+	require.NoError(t, err)
+	listReq.Header.Set(HeaderAccept, ContentTypeJSON)
+	for _, c := range cookies {
+		listReq.AddCookie(c)
+	}
+
+	listResp, err := client.Do(listReq)
+	require.NoError(t, err)
+	defer listResp.Body.Close()
+
+	assert.Equal(t, http.StatusOK, listResp.StatusCode)
+
+	var entries []FileEntry
+	require.NoError(t, json.NewDecoder(listResp.Body).Decode(&entries))
+	require.Len(t, entries, 1)
+	assert.Equal(t, "main.go", entries[0].Name)
+	assert.False(t, entries[0].IsDir)
+
+	// Step 5: Download the nested file.
+	dlReq, err := http.NewRequest(http.MethodGet,
+		ts.URL+RouteFilesDownload+"?"+QueryParamPath+"=project/src/main.go", nil)
+	require.NoError(t, err)
+	for _, c := range cookies {
+		dlReq.AddCookie(c)
+	}
+
+	dlResp, err := client.Do(dlReq)
+	require.NoError(t, err)
+	defer dlResp.Body.Close()
+
+	assert.Equal(t, http.StatusOK, dlResp.StatusCode)
+	dlBody, err := io.ReadAll(dlResp.Body)
+	require.NoError(t, err)
+	assert.Equal(t, "package main", string(dlBody))
+}
+
+func TestIntegration_DiskUsageFooter_HTMX(t *testing.T) {
+	initTestVersion(t)
+	cfg := testConfig(t)
+
+	srv, err := NewServer(cfg, testLogger(), nil, testTemplateFS())
+	require.NoError(t, err)
+	t.Cleanup(func() { srv.sessionStore.Stop() })
+
+	ts := httptest.NewServer(srv.Router())
+	defer ts.Close()
+
+	client := ts.Client()
+
+	// HTMX request to /healthz should return HTML, not JSON.
+	req, err := http.NewRequest(http.MethodGet, ts.URL+RouteHealthz, nil)
+	require.NoError(t, err)
+	req.Header.Set(HeaderHXRequest, HXRequestTrue)
+
+	resp, err := client.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Contains(t, resp.Header.Get(HeaderContentType), ContentTypeHTML)
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	bodyStr := string(body)
+
+	// Should contain disk usage info.
+	assert.Contains(t, bodyStr, "Disk:")
+}
+
+func TestIntegration_HealthzJSON_StillWorks(t *testing.T) {
+	initTestVersion(t)
+	cfg := testConfig(t)
+
+	srv, err := NewServer(cfg, testLogger(), nil, testTemplateFS())
+	require.NoError(t, err)
+	t.Cleanup(func() { srv.sessionStore.Stop() })
+
+	ts := httptest.NewServer(srv.Router())
+	defer ts.Close()
+
+	// Regular (non-HTMX) request should still return JSON.
+	resp, err := http.Get(ts.URL + RouteHealthz)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, ContentTypeJSON, resp.Header.Get(HeaderContentType))
+
+	var healthResp HealthResponse
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&healthResp))
+	assert.Equal(t, HealthStatusOK, healthResp.Status)
+	assert.NotNil(t, healthResp.Disk)
+}

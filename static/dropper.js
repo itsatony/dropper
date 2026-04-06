@@ -1,5 +1,6 @@
 // dropper.js — client-side behavior
-// Clipboard paste, drag-drop feedback, localStorage bookmarks, toast, HTMX hooks
+// Clipboard paste, drag-drop (flat + directory), localStorage bookmarks,
+// toast, upload progress, last-dir navigation, HTMX hooks
 
 (function () {
   "use strict";
@@ -9,6 +10,7 @@
   var STORAGE_KEY_LAST_DIR = "dropper_last_dir";
   var TOAST_DISMISS_MS = 4000;
   var TOAST_FADE_MS = 300;
+  var PROGRESS_HIDE_DELAY_MS = 500;
 
   // --- Module-scoped state ---
   var clipboardBlob = null;
@@ -131,6 +133,14 @@
     }
   }
 
+  function getLastDir() {
+    try {
+      return localStorage.getItem(STORAGE_KEY_LAST_DIR);
+    } catch (e) {
+      return null;
+    }
+  }
+
   function getCurrentPath() {
     var params = new URLSearchParams(window.location.search);
     return params.get("path") || ".";
@@ -153,7 +163,82 @@
     return (el && el.getAttribute("data-mkdir-url")) || "/files/mkdir";
   }
 
-  // --- File Upload ---
+  // --- Upload Progress ---
+
+  function showProgress() {
+    var bar = document.getElementById("upload-progress");
+    var fill = document.getElementById("upload-progress-fill");
+    if (bar) bar.hidden = false;
+    if (fill) fill.style.width = "0%";
+  }
+
+  function updateProgress(percent) {
+    var fill = document.getElementById("upload-progress-fill");
+    if (fill) fill.style.width = percent + "%";
+  }
+
+  function hideProgress() {
+    setTimeout(function () {
+      var bar = document.getElementById("upload-progress");
+      var fill = document.getElementById("upload-progress-fill");
+      if (bar) bar.hidden = true;
+      if (fill) fill.style.width = "0%";
+    }, PROGRESS_HIDE_DELAY_MS);
+  }
+
+  // --- File Upload (XHR for progress support) ---
+
+  function uploadFormData(formData, url) {
+    showProgress();
+
+    var xhr = new XMLHttpRequest();
+    xhr.open("POST", url, true);
+
+    xhr.upload.addEventListener("progress", function (e) {
+      if (e.lengthComputable) {
+        var percent = Math.round((e.loaded / e.total) * 100);
+        updateProgress(percent);
+      }
+    });
+
+    xhr.addEventListener("load", function () {
+      updateProgress(100);
+      hideProgress();
+
+      var data;
+      try {
+        data = JSON.parse(xhr.responseText);
+      } catch (e) {
+        showToast("Upload failed: invalid response", "error");
+        return;
+      }
+
+      if (xhr.status !== 200) {
+        showToast(data.message || "Upload failed", "error");
+        return;
+      }
+
+      if (data.failed > 0) {
+        showToast(data.failed + " file(s) failed to upload", "error");
+      }
+      if (data.uploaded > 0) {
+        showToast(data.uploaded + " file(s) uploaded", "success");
+      }
+      refreshFileList();
+    });
+
+    xhr.addEventListener("error", function () {
+      hideProgress();
+      showToast("Upload failed: network error", "error");
+    });
+
+    xhr.addEventListener("abort", function () {
+      hideProgress();
+      showToast("Upload cancelled", "info");
+    });
+
+    xhr.send(formData);
+  }
 
   function uploadFiles(files, isClipboard) {
     if (!files || files.length === 0) return;
@@ -167,29 +252,117 @@
       getUploadURL() + "?path=" + encodeURIComponent(getCurrentPath());
     if (isClipboard) url += "&clipboard=true";
 
-    fetch(url, { method: "POST", body: formData })
-      .then(function (resp) {
-        return resp.json().then(function (data) {
-          return { status: resp.status, data: data };
+    uploadFormData(formData, url);
+  }
+
+  // --- Directory Upload (webkitGetAsEntry API) ---
+
+  // Recursively traverse a FileSystemEntry and collect {file, relpath} pairs.
+  function traverseEntry(entry, basePath) {
+    return new Promise(function (resolve) {
+      if (entry.isFile) {
+        entry.file(function (file) {
+          resolve([{ file: file, relpath: basePath }]);
+        }, function () {
+          // Failed to read file — skip.
+          resolve([]);
         });
-      })
-      .then(function (result) {
-        if (result.status !== 200) {
-          showToast(result.data.message || "Upload failed", "error");
-          return;
+      } else if (entry.isDirectory) {
+        var reader = entry.createReader();
+        var allEntries = [];
+
+        // readEntries may not return all entries at once — read until empty.
+        function readBatch() {
+          reader.readEntries(function (entries) {
+            if (entries.length === 0) {
+              // All entries read — recurse into each.
+              var promises = allEntries.map(function (child) {
+                var childPath = basePath ? basePath + "/" + child.name : child.name;
+                return traverseEntry(child, childPath);
+              });
+              Promise.all(promises).then(function (results) {
+                var flat = [];
+                results.forEach(function (arr) {
+                  flat = flat.concat(arr);
+                });
+                resolve(flat);
+              });
+            } else {
+              allEntries = allEntries.concat(Array.prototype.slice.call(entries));
+              readBatch();
+            }
+          }, function () {
+            resolve([]);
+          });
         }
-        var data = result.data;
-        if (data.failed > 0) {
-          showToast(data.failed + " file(s) failed to upload", "error");
+        readBatch();
+      } else {
+        resolve([]);
+      }
+    });
+  }
+
+  // Upload files with their relative paths (directory structure preserved).
+  function uploadFilesWithPaths(filePathPairs) {
+    if (!filePathPairs || filePathPairs.length === 0) return;
+
+    var formData = new FormData();
+    filePathPairs.forEach(function (pair) {
+      formData.append("file", pair.file);
+      // Extract the directory portion of the relpath (remove filename).
+      var parts = pair.relpath.split("/");
+      var dirPath = parts.length > 1 ? parts.slice(0, -1).join("/") : "";
+      formData.append("relpath", dirPath);
+    });
+
+    var url =
+      getUploadURL() + "?path=" + encodeURIComponent(getCurrentPath());
+
+    uploadFormData(formData, url);
+  }
+
+  // Check if the DataTransfer contains directory entries.
+  function hasDirectoryEntries(dataTransfer) {
+    if (!dataTransfer || !dataTransfer.items) return false;
+    for (var i = 0; i < dataTransfer.items.length; i++) {
+      var entry = dataTransfer.items[i].webkitGetAsEntry
+        ? dataTransfer.items[i].webkitGetAsEntry()
+        : null;
+      if (entry && entry.isDirectory) return true;
+    }
+    return false;
+  }
+
+  // Handle drop with directory support.
+  function handleDrop(dataTransfer) {
+    if (!dataTransfer) return;
+
+    // Check for webkitGetAsEntry support and directory entries.
+    var items = dataTransfer.items;
+    var hasEntryAPI = items && items.length > 0 && items[0].webkitGetAsEntry;
+
+    if (hasEntryAPI && hasDirectoryEntries(dataTransfer)) {
+      // Directory upload: traverse entries recursively.
+      var promises = [];
+      for (var i = 0; i < items.length; i++) {
+        var entry = items[i].webkitGetAsEntry();
+        if (entry) {
+          promises.push(traverseEntry(entry, entry.name));
         }
-        if (data.uploaded > 0) {
-          showToast(data.uploaded + " file(s) uploaded", "success");
+      }
+      Promise.all(promises).then(function (results) {
+        var flat = [];
+        results.forEach(function (arr) {
+          flat = flat.concat(arr);
+        });
+        if (flat.length > 0) {
+          uploadFilesWithPaths(flat);
         }
-        refreshFileList();
-      })
-      .catch(function (err) {
-        showToast("Upload failed: " + err.message, "error");
       });
+    } else if (dataTransfer.files.length > 0) {
+      // Flat file upload (no directory structure).
+      uploadFiles(dataTransfer.files, false);
+    }
   }
 
   function refreshFileList() {
@@ -235,9 +408,7 @@
       e.preventDefault();
       counter = 0;
       dropzone.classList.remove("drag-over");
-      if (e.dataTransfer && e.dataTransfer.files.length > 0) {
-        uploadFiles(e.dataTransfer.files, false);
-      }
+      handleDrop(e.dataTransfer);
     });
 
     // Wire up the fallback file input.
@@ -370,6 +541,25 @@
     });
   }
 
+  // --- Last-Dir Auto-Navigation ---
+
+  function maybeNavigateToLastDir() {
+    // Only act on bare "/" with no explicit path param.
+    var params = new URLSearchParams(window.location.search);
+    if (params.has("path")) return;
+
+    var lastDir = getLastDir();
+    if (!lastDir || lastDir === ".") return;
+
+    // Use HTMX to navigate, update URL bar.
+    if (window.htmx) {
+      htmx.ajax("GET", getFilesURL() + "?path=" + encodeURIComponent(lastDir), {
+        target: "#file-browser",
+      });
+      history.replaceState(null, "", "/?path=" + encodeURIComponent(lastDir));
+    }
+  }
+
   // --- HTMX Event Hooks ---
 
   function initHTMXHooks() {
@@ -397,6 +587,7 @@
     initMkdirButton();
     initHTMXHooks();
     saveLastDir(getCurrentPath());
+    maybeNavigateToLastDir();
   }
 
   if (document.readyState === "loading") {

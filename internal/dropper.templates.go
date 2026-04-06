@@ -27,6 +27,13 @@ type PageData struct {
 	SortOrder   string
 	Readonly    bool
 	Error       string
+	DiskUsage   *DiskUsageInfo
+}
+
+// DiskUsageData is the data passed to the diskusage partial when rendered
+// via HTMX from the /healthz endpoint.
+type DiskUsageData struct {
+	DiskUsage *DiskUsageInfo
 }
 
 // ChildPath returns the path to a child entry within the current directory.
@@ -56,12 +63,24 @@ type TemplateSet struct {
 // templateFuncMap returns the function map available to all templates.
 func templateFuncMap() template.FuncMap {
 	return template.FuncMap{
-		"formatSize": FormatFileSize,
-		"formatTime": formatModTime,
-		"lower":      strings.ToLower,
-		"sub":        func(a, b int) int { return a - b },
-		"urlquery":   url.QueryEscape,
+		"formatSize":     FormatFileSize,
+		"formatTime":     formatModTime,
+		"formatDiskSize": FormatDiskSizeFloat,
+		"diskPercent":    FormatDiskPercent,
+		"lower":          strings.ToLower,
+		"sub":            func(a, b int) int { return a - b },
+		"urlquery":       url.QueryEscape,
 	}
+}
+
+// FormatDiskSizeFloat formats a uint64 byte count as a human-readable string.
+func FormatDiskSizeFloat(bytes uint64) string {
+	return FormatFileSize(int64(bytes))
+}
+
+// FormatDiskPercent formats a float64 percentage to one decimal place.
+func FormatDiskPercent(pct float64) string {
+	return fmt.Sprintf(PercentFormat, pct)
 }
 
 // formatModTime formats a time.Time for display in file listings.
@@ -91,6 +110,7 @@ func NewTemplateSet(templateFS fs.FS) (*TemplateSet, error) {
 		path.Join(TemplateBaseDir, TemplatePartialsDir, TemplateDropzone),
 		path.Join(TemplateBaseDir, TemplatePartialsDir, TemplateBookmarks),
 		path.Join(TemplateBaseDir, TemplatePartialsDir, TemplateToast),
+		path.Join(TemplateBaseDir, TemplatePartialsDir, TemplateDiskUsage),
 		path.Join(TemplateBaseDir, TemplateComponentsDir, TemplatePreview),
 	}
 

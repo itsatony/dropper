@@ -61,7 +61,7 @@ func NewServer(cfg *Config, logger *slog.Logger, staticFS fs.FS, templateFS fs.F
 	}
 
 	// Public routes (no auth required).
-	r.Get(RouteHealthz, HandleHealthz(cfg.Dropper.RootDir, logger))
+	r.Get(RouteHealthz, HandleHealthz(cfg.Dropper.RootDir, ts, logger))
 	r.Handle(RouteVersion, version.Handler())
 	r.Handle(RouteMetrics, MetricsHandler())
 

@@ -24,14 +24,32 @@ type HealthResponse struct {
 
 // HandleHealthz returns a handler for the /healthz endpoint.
 // Reports disk usage of the configured root directory.
-func HandleHealthz(rootDir string, logger *slog.Logger) http.HandlerFunc {
+// Supports HTMX content negotiation: when HX-Request is present, renders
+// the diskusage HTML partial instead of JSON.
+func HandleHealthz(rootDir string, ts *TemplateSet, logger *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		disk, err := getDiskUsage(rootDir)
 		if err != nil {
 			logger.Warn(ErrMsgDiskUsage, LogFieldError, err, LogFieldRootDir, rootDir)
+			if IsHTMXRequest(r) && ts != nil {
+				w.Header().Set(HeaderContentType, ContentTypeHTML)
+				w.WriteHeader(http.StatusOK)
+				return
+			}
 			RespondOK(w, &HealthResponse{Status: HealthStatusOK})
 			return
 		}
+
+		// HTMX request: render disk usage HTML partial.
+		if IsHTMXRequest(r) && ts != nil {
+			data := DiskUsageData{DiskUsage: disk}
+			w.Header().Set(HeaderContentType, ContentTypeHTML)
+			if renderErr := ts.RenderPartial(w, PageMain, BlockDiskUsage, data); renderErr != nil {
+				logger.Error(ErrMsgTemplateRender, LogFieldError, renderErr)
+			}
+			return
+		}
+
 		RespondOK(w, &HealthResponse{
 			Status: HealthStatusOK,
 			Disk:   disk,

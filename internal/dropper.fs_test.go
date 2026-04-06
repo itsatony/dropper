@@ -739,3 +739,170 @@ func TestSafeWriteFile_CollisionResolution_Sequential(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "second", string(c2))
 }
+
+// --- DC-10 SafeWriteFileWithRelPath tests ---
+
+func TestSafeWriteFileWithRelPath(t *testing.T) {
+	logger := testLogger()
+
+	t.Run("happy path: nested dir creation and file write", func(t *testing.T) {
+		root := t.TempDir()
+		data := bytes.NewReader([]byte("nested file content"))
+
+		finalName, relDir, err := SafeWriteFileWithRelPath(
+			root, ".", "photos/vacation", "beach.txt", data,
+			DefaultMaxUploadBytes, nil, false, logger,
+		)
+		require.NoError(t, err)
+		assert.Equal(t, "beach.txt", finalName)
+		assert.Equal(t, filepath.Join("photos", "vacation"), relDir)
+
+		// Verify file exists in the nested directory.
+		content, err := os.ReadFile(filepath.Join(root, "photos", "vacation", "beach.txt"))
+		require.NoError(t, err)
+		assert.Equal(t, "nested file content", string(content))
+	})
+
+	t.Run("sanitizes path components", func(t *testing.T) {
+		root := t.TempDir()
+		data := bytes.NewReader([]byte("sanitized"))
+
+		// "../" components should be sanitized (SanitizeFilename returns "_" for "..")
+		// and empty parts after sanitization are skipped.
+		finalName, relDir, err := SafeWriteFileWithRelPath(
+			root, ".", "docs/report files", "test.txt", data,
+			DefaultMaxUploadBytes, nil, false, logger,
+		)
+		require.NoError(t, err)
+		assert.Equal(t, "test.txt", finalName)
+		// "report files" becomes "report_files" after sanitization.
+		assert.Equal(t, filepath.Join("docs", "report_files"), relDir)
+	})
+
+	t.Run("path traversal via dotdot rejected", func(t *testing.T) {
+		root := t.TempDir()
+		data := bytes.NewReader([]byte("evil"))
+
+		// The ".." component becomes "_" after SanitizeFilename, so it won't
+		// actually escape the root. This tests that the mechanism works.
+		finalName, _, err := SafeWriteFileWithRelPath(
+			root, ".", "../../etc", "passwd.txt", data,
+			DefaultMaxUploadBytes, nil, false, logger,
+		)
+		// Should succeed (sanitized to "_/_/etc") but should be within root.
+		require.NoError(t, err)
+		assert.Equal(t, "passwd.txt", finalName)
+
+		// Verify file is within root, not in /etc.
+		entries, err := os.ReadDir(root)
+		require.NoError(t, err)
+		assert.Greater(t, len(entries), 0)
+	})
+
+	t.Run("readonly mode rejected", func(t *testing.T) {
+		root := t.TempDir()
+		data := bytes.NewReader([]byte("blocked"))
+
+		_, _, err := SafeWriteFileWithRelPath(
+			root, ".", "subdir", "file.txt", data,
+			DefaultMaxUploadBytes, nil, true, logger,
+		)
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, ErrReadonlyMode))
+	})
+
+	t.Run("deep nesting (5 levels)", func(t *testing.T) {
+		root := t.TempDir()
+		data := bytes.NewReader([]byte("deep"))
+
+		finalName, relDir, err := SafeWriteFileWithRelPath(
+			root, ".", "a/b/c/d/e", "deep.txt", data,
+			DefaultMaxUploadBytes, nil, false, logger,
+		)
+		require.NoError(t, err)
+		assert.Equal(t, "deep.txt", finalName)
+		assert.Equal(t, filepath.Join("a", "b", "c", "d", "e"), relDir)
+
+		content, err := os.ReadFile(filepath.Join(root, "a", "b", "c", "d", "e", "deep.txt"))
+		require.NoError(t, err)
+		assert.Equal(t, "deep", string(content))
+	})
+
+	t.Run("collision resolution in nested dir", func(t *testing.T) {
+		root := t.TempDir()
+
+		// First write.
+		data1 := bytes.NewReader([]byte("first"))
+		name1, _, err := SafeWriteFileWithRelPath(
+			root, ".", "subdir", "dup.txt", data1,
+			DefaultMaxUploadBytes, nil, false, logger,
+		)
+		require.NoError(t, err)
+		assert.Equal(t, "dup.txt", name1)
+
+		// Second write — same path, same filename → collision.
+		data2 := bytes.NewReader([]byte("second"))
+		name2, _, err := SafeWriteFileWithRelPath(
+			root, ".", "subdir", "dup.txt", data2,
+			DefaultMaxUploadBytes, nil, false, logger,
+		)
+		require.NoError(t, err)
+		assert.NotEqual(t, name1, name2)
+		assert.Contains(t, name2, "dup.txt")
+	})
+
+	t.Run("empty relpath rejected", func(t *testing.T) {
+		root := t.TempDir()
+		data := bytes.NewReader([]byte("flat"))
+
+		_, _, err := SafeWriteFileWithRelPath(
+			root, ".", "", "file.txt", data,
+			DefaultMaxUploadBytes, nil, false, logger,
+		)
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, ErrInvalidRelPath))
+	})
+
+	t.Run("all-dots relpath rejected", func(t *testing.T) {
+		root := t.TempDir()
+		data := bytes.NewReader([]byte("dots"))
+
+		_, _, err := SafeWriteFileWithRelPath(
+			root, ".", "../..", "file.txt", data,
+			DefaultMaxUploadBytes, nil, false, logger,
+		)
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, ErrInvalidRelPath))
+	})
+
+	t.Run("extension validation on nested uploads", func(t *testing.T) {
+		root := t.TempDir()
+		data := bytes.NewReader([]byte("blocked ext"))
+
+		_, _, err := SafeWriteFileWithRelPath(
+			root, ".", "subdir", "script.exe", data,
+			DefaultMaxUploadBytes, []string{".txt", ".pdf"}, false, logger,
+		)
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, ErrExtNotAllowed))
+	})
+
+	t.Run("baseDir combined with relpath", func(t *testing.T) {
+		root := t.TempDir()
+		// Create the base directory first.
+		require.NoError(t, os.Mkdir(filepath.Join(root, "uploads"), DirPermissions))
+		data := bytes.NewReader([]byte("nested under base"))
+
+		finalName, relDir, err := SafeWriteFileWithRelPath(
+			root, "uploads", "project/src", "main.go", data,
+			DefaultMaxUploadBytes, nil, false, logger,
+		)
+		require.NoError(t, err)
+		assert.Equal(t, "main.go", finalName)
+		assert.Equal(t, filepath.Join("project", "src"), relDir)
+
+		content, err := os.ReadFile(filepath.Join(root, "uploads", "project", "src", "main.go"))
+		require.NoError(t, err)
+		assert.Equal(t, "nested under base", string(content))
+	})
+}

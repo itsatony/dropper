@@ -18,7 +18,7 @@ func healthTestLogger() *slog.Logger {
 }
 
 func TestHandleHealthz_Returns200(t *testing.T) {
-	handler := HandleHealthz("/tmp", healthTestLogger())
+	handler := HandleHealthz("/tmp", nil, healthTestLogger())
 	req := httptest.NewRequest(http.MethodGet, RouteHealthz, nil)
 	rec := httptest.NewRecorder()
 
@@ -34,7 +34,7 @@ func TestHandleHealthz_Returns200(t *testing.T) {
 }
 
 func TestHandleHealthz_DiskFields(t *testing.T) {
-	handler := HandleHealthz("/tmp", healthTestLogger())
+	handler := HandleHealthz("/tmp", nil, healthTestLogger())
 	req := httptest.NewRequest(http.MethodGet, RouteHealthz, nil)
 	rec := httptest.NewRecorder()
 
@@ -52,7 +52,7 @@ func TestHandleHealthz_DiskFields(t *testing.T) {
 }
 
 func TestHandleHealthz_InvalidRootDir(t *testing.T) {
-	handler := HandleHealthz("/nonexistent/path/that/does/not/exist", healthTestLogger())
+	handler := HandleHealthz("/nonexistent/path/that/does/not/exist", nil, healthTestLogger())
 	req := httptest.NewRequest(http.MethodGet, RouteHealthz, nil)
 	rec := httptest.NewRecorder()
 
@@ -65,6 +65,58 @@ func TestHandleHealthz_InvalidRootDir(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, HealthStatusOK, resp.Status)
 	assert.Nil(t, resp.Disk, "disk should be nil for invalid path")
+}
+
+// --- DC-10 HTMX disk usage tests ---
+
+func TestHandleHealthz_HTMXResponse_ReturnsHTML(t *testing.T) {
+	ts := testTemplateSet(t)
+	handler := HandleHealthz("/tmp", ts, healthTestLogger())
+
+	req := httptest.NewRequest(http.MethodGet, RouteHealthz, nil)
+	req.Header.Set(HeaderHXRequest, HXRequestTrue)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Header().Get(HeaderContentType), ContentTypeHTML)
+
+	body := rec.Body.String()
+	// Should contain disk usage info rendered as HTML.
+	assert.Contains(t, body, "Disk:")
+}
+
+func TestHandleHealthz_HTMXResponse_InvalidPath(t *testing.T) {
+	ts := testTemplateSet(t)
+	handler := HandleHealthz("/nonexistent/path", ts, healthTestLogger())
+
+	req := httptest.NewRequest(http.MethodGet, RouteHealthz, nil)
+	req.Header.Set(HeaderHXRequest, HXRequestTrue)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	// Should still return 200 with empty content (graceful degradation).
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Header().Get(HeaderContentType), ContentTypeHTML)
+}
+
+func TestHandleHealthz_JSONPreserved(t *testing.T) {
+	// Ensure non-HTMX requests still get JSON.
+	handler := HandleHealthz("/tmp", nil, healthTestLogger())
+	req := httptest.NewRequest(http.MethodGet, RouteHealthz, nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, ContentTypeJSON, rec.Header().Get(HeaderContentType))
+
+	var resp HealthResponse
+	err := json.NewDecoder(rec.Body).Decode(&resp)
+	require.NoError(t, err)
+	assert.Equal(t, HealthStatusOK, resp.Status)
 }
 
 func TestMetricsHandler_Returns200(t *testing.T) {

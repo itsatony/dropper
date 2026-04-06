@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.10.0] - 2026-04-06
+
+### Added
+- Directory upload with folder structure preservation via `webkitGetAsEntry` API
+- `SafeWriteFileWithRelPath` for secure nested directory creation during uploads
+- `relpath` multipart form field for directory upload relative path preservation
+- Disk usage footer in main view (async HTMX load from `/healthz`)
+- HTMX content negotiation on `/healthz` endpoint (HTML partial for HTMX, JSON for API)
+- Last-directory auto-navigation on page load (localStorage-based)
+- Upload progress bar with real-time percentage (XHR `upload.onprogress`)
+- `.golangci.yml` linting configuration (errcheck, govet, staticcheck, gosec, gocritic, gofmt, misspell)
+- `diskusage.html` template partial with disk bar visualization
+- Progress bar container in dropzone template
+- `ErrInvalidRelPath` sentinel error and constructor
+- DC-10 unit tests: `SafeWriteFileWithRelPath` (10 cases), directory upload handlers (4 cases)
+- DC-10 integration tests: directory upload workflow, disk usage HTMX rendering
+- DC-10 health tests: HTMX response, JSON preservation, invalid path handling
+
+### Changed
+- `HandleHealthz` now accepts `*TemplateSet` parameter for HTMX partial rendering
+- `HandleUpload` reads parallel `relpath` form fields for directory structure uploads
+- `dropper.js` rewritten upload function from `fetch()` to `XMLHttpRequest` for progress events
+- `dropper.js` drop handler uses `webkitGetAsEntry` with recursive directory traversal
+- Dropzone text updated to mention folder support
+- `PageData` struct includes optional `DiskUsage` field
+- Test template FS updated with `diskusage.html` partial
+
 ## [0.9.0] - 2026-04-06
 
 ### Added

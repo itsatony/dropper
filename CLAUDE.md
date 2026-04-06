@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Dropper is a minimal, self-hosted file drop-zone web tool. Upload files via drag-and-drop or clipboard paste, browse and download from a local directory tree. Deployed as a container with mounted volumes — no SFTP, no SSH, no remote connections. The "remote" is a deployment concern (bind mount, NFS, PVC).
 
-**Status:** Cycle 9 complete (integration tests, security review, config audit, release prep). Building from spec (`project_plan/dropper_spec.md`).
+**Status:** Cycle 10 complete (spec completion: directory upload, disk usage footer, last-dir navigation, upload progress, linting config). Building from spec (`project_plan/dropper_spec.md`).
 **Stack:** Go 1.25+ / chi/v5 / HTMX / server-rendered HTML templates
 **License:** Apache 2.0
 

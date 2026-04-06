@@ -271,6 +271,7 @@ const (
 	ErrMsgBodyTooLarge    = "request body exceeds maximum size"
 	ErrMsgMissingParam    = "required parameter missing"
 	ErrMsgInternal        = "internal server error"
+	ErrMsgInvalidRelPath  = "invalid relative path in upload"
 )
 
 // --- Config validation error messages ---
@@ -292,6 +293,7 @@ const (
 	ErrCodeExtNotAllowed   = "extension_not_allowed"
 	ErrCodeFileTooLarge    = "file_too_large"
 	ErrCodePayloadTooLarge = "payload_too_large"
+	ErrCodeInvalidRelPath  = "invalid_relpath"
 )
 
 // --- Sort fields ---
@@ -366,6 +368,13 @@ const (
 const (
 	SizeFormatBytes   = "%d %s"
 	SizeFormatDecimal = "%.1f %s"
+	PercentFormat     = "%.1f%%"
+)
+
+// --- Directory upload ---
+
+const (
+	RelPathSeparator = "/"
 )
 
 // --- Request logging ---
@@ -405,6 +414,7 @@ const (
 	LogMsgPasteUpload         = "clipboard paste uploaded"
 	LogMsgMultipartCleanup    = "failed to remove multipart temp files"
 	LogMsgFileHandleClose     = "failed to close uploaded file handle"
+	LogMsgDirUploadCreated    = "directory upload: intermediate dirs created"
 )
 
 // --- Log field names (filesystem) ---
@@ -418,6 +428,7 @@ const (
 	LogFieldExtension    = "extension"
 	LogFieldUploadCount  = "upload_count"
 	LogFieldFailCount    = "fail_count"
+	LogFieldRelPath      = "relpath"
 )
 
 // --- Session / Auth ---
@@ -531,6 +542,7 @@ const (
 	TemplateBookmarks     = "bookmarks.html"
 	TemplateToast         = "toast.html"
 	TemplatePreview       = "preview.html"
+	TemplateDiskUsage     = "diskusage.html"
 )
 
 // --- Template page keys (for TemplateSet map) ---
@@ -549,6 +561,7 @@ const (
 	BlockBookmarks   = "bookmarks"
 	BlockToast       = "toast"
 	BlockPreview     = "preview"
+	BlockDiskUsage   = "diskusage"
 )
 
 // --- HTTP headers (auth) ---
@@ -584,6 +597,7 @@ const (
 const (
 	FormFieldLoginInput = "secret"
 	FormFieldFile       = "file"
+	FormFieldRelPath    = "relpath"
 )
 
 // --- Session token format ---

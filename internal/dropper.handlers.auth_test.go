@@ -36,7 +36,7 @@ func testTemplateFS() fstest.MapFS {
 			Data: []byte(`{{define "content"}}<form method="POST" action="/login"><input type="password" name="secret"><button type="submit">Login</button>{{if .Error}}<p class="error">{{.Error}}</p>{{end}}</form>{{end}}`),
 		},
 		"templates/main.html": &fstest.MapFile{
-			Data: []byte(`{{define "content"}}<div id="file-browser">{{template "breadcrumbs" .}}{{template "filelist" .}}</div>{{if not .Readonly}}{{template "dropzone" .}}{{end}}{{template "bookmarks" .}}{{template "toast" .}}{{template "preview" .}}{{end}}`),
+			Data: []byte(`{{define "content"}}<div id="file-browser">{{template "breadcrumbs" .}}{{template "filelist" .}}</div>{{if not .Readonly}}{{template "dropzone" .}}{{end}}{{template "diskusage" .}}{{template "bookmarks" .}}{{template "toast" .}}{{template "preview" .}}{{end}}`),
 		},
 		"templates/partials/breadcrumbs.html": &fstest.MapFile{
 			Data: []byte(`{{define "breadcrumbs"}}<nav class="breadcrumbs">{{range $i, $seg := .Breadcrumbs}}{{if $i}} / {{end}}<span>{{$seg.Label}}</span>{{end}}</nav>{{end}}`),
@@ -52,6 +52,9 @@ func testTemplateFS() fstest.MapFS {
 		},
 		"templates/partials/toast.html": &fstest.MapFile{
 			Data: []byte(`{{define "toast"}}<!-- toast -->{{end}}`),
+		},
+		"templates/partials/diskusage.html": &fstest.MapFile{
+			Data: []byte(`{{define "diskusage"}}{{if .DiskUsage}}<footer>Disk: {{formatDiskSize .DiskUsage.UsedBytes}} / {{formatDiskSize .DiskUsage.TotalBytes}} ({{diskPercent .DiskUsage.UsedPercent}})</footer>{{end}}{{end}}`),
 		},
 		"templates/components/preview.html": &fstest.MapFile{
 			Data: []byte(`{{define "preview"}}<div class="preview-modal" id="preview-modal" hidden></div>{{end}}`),
