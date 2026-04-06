@@ -9,13 +9,15 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+const testVersion = "0.0.1-test"
+
 func TestNewLogger_JSONFormat(t *testing.T) {
 	cfg := LoggingConfig{
 		Level:  LogLevelInfo,
 		Format: LogFormatJSON,
 		Output: LogOutputStdout,
 	}
-	logger := NewLogger(cfg)
+	logger := NewLogger(cfg, testVersion)
 	assert.NotNil(t, logger)
 	assert.True(t, logger.Enabled(context.Background(), slog.LevelInfo))
 	assert.False(t, logger.Enabled(context.Background(), slog.LevelDebug))
@@ -27,7 +29,7 @@ func TestNewLogger_ConsoleFormat(t *testing.T) {
 		Format: LogFormatConsole,
 		Output: LogOutputStderr,
 	}
-	logger := NewLogger(cfg)
+	logger := NewLogger(cfg, testVersion)
 	assert.NotNil(t, logger)
 	assert.True(t, logger.Enabled(context.Background(), slog.LevelDebug))
 }

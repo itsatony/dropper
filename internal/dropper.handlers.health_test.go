@@ -2,6 +2,8 @@ package dropper
 
 import (
 	"encoding/json"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,8 +13,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func healthTestLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
+
 func TestHandleHealthz_Returns200(t *testing.T) {
-	handler := HandleHealthz("/tmp")
+	handler := HandleHealthz("/tmp", healthTestLogger())
 	req := httptest.NewRequest(http.MethodGet, RouteHealthz, nil)
 	rec := httptest.NewRecorder()
 
@@ -28,7 +34,7 @@ func TestHandleHealthz_Returns200(t *testing.T) {
 }
 
 func TestHandleHealthz_DiskFields(t *testing.T) {
-	handler := HandleHealthz("/tmp")
+	handler := HandleHealthz("/tmp", healthTestLogger())
 	req := httptest.NewRequest(http.MethodGet, RouteHealthz, nil)
 	rec := httptest.NewRecorder()
 
@@ -46,7 +52,7 @@ func TestHandleHealthz_DiskFields(t *testing.T) {
 }
 
 func TestHandleHealthz_InvalidRootDir(t *testing.T) {
-	handler := HandleHealthz("/nonexistent/path/that/does/not/exist")
+	handler := HandleHealthz("/nonexistent/path/that/does/not/exist", healthTestLogger())
 	req := httptest.NewRequest(http.MethodGet, RouteHealthz, nil)
 	rec := httptest.NewRecorder()
 

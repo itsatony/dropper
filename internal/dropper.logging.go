@@ -7,7 +7,8 @@ import (
 )
 
 // NewLogger creates a configured slog.Logger based on LoggingConfig.
-func NewLogger(cfg LoggingConfig) *slog.Logger {
+// The version string is included as a base attribute on every log line.
+func NewLogger(cfg LoggingConfig, version string) *slog.Logger {
 	level := parseLogLevel(cfg.Level)
 	opts := &slog.HandlerOptions{Level: level}
 
@@ -23,6 +24,7 @@ func NewLogger(cfg LoggingConfig) *slog.Logger {
 
 	return slog.New(handler).With(
 		LogFieldService, ServiceName,
+		LogFieldVersion, version,
 	)
 }
 

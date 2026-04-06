@@ -1,6 +1,7 @@
 package dropper
 
 import (
+	"log/slog"
 	"net/http"
 	"syscall"
 
@@ -23,10 +24,11 @@ type HealthResponse struct {
 
 // HandleHealthz returns a handler for the /healthz endpoint.
 // Reports disk usage of the configured root directory.
-func HandleHealthz(rootDir string) http.HandlerFunc {
+func HandleHealthz(rootDir string, logger *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		disk, err := getDiskUsage(rootDir)
 		if err != nil {
+			logger.Warn(ErrMsgDiskUsage, LogFieldError, err, LogFieldRootDir, rootDir)
 			RespondOK(w, &HealthResponse{Status: HealthStatusOK})
 			return
 		}

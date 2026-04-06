@@ -199,6 +199,9 @@ const (
 	ErrMsgServerStart      = "failed to start http server"
 	ErrMsgVersionInit      = "failed to initialize version"
 	ErrMsgStaticFSSub      = "failed to create static sub-fs"
+	ErrMsgJSONEncode       = "failed to encode json response"
+	ErrMsgDiskUsage        = "failed to get disk usage"
+	ErrMsgShutdownError    = "graceful shutdown error"
 )
 
 // --- Response error codes ---

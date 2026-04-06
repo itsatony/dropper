@@ -2,6 +2,7 @@ package dropper
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 )
 
@@ -10,7 +11,9 @@ func RespondJSON(w http.ResponseWriter, status int, data any) {
 	w.Header().Set(HeaderContentType, ContentTypeJSON)
 	w.WriteHeader(status)
 	if data != nil {
-		_ = json.NewEncoder(w).Encode(data)
+		if err := json.NewEncoder(w).Encode(data); err != nil {
+			slog.Error(ErrMsgJSONEncode, LogFieldError, err)
+		}
 	}
 }
 

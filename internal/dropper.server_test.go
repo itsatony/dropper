@@ -41,7 +41,11 @@ func testConfig() *Config {
 }
 
 func testLogger() *slog.Logger {
-	return slog.New(slog.NewTextHandler(io.Discard, nil))
+	return NewLogger(LoggingConfig{
+		Level:  LogLevelDebug,
+		Format: LogFormatConsole,
+		Output: LogOutputStdout,
+	}, testVersion)
 }
 
 // initTestVersion initializes go-version for tests.

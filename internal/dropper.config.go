@@ -63,9 +63,10 @@ func LoadConfig(path string) (*Config, error) {
 	setDefaults(v)
 
 	if err := v.ReadInConfig(); err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); !ok && path != "" {
+		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
 			return nil, fmt.Errorf("%s: %w", ErrMsgConfigLoad, err)
 		}
+		// ConfigFileNotFoundError is acceptable — config can come entirely from env vars.
 	}
 
 	cfg := &Config{}

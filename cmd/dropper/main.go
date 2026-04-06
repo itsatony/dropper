@@ -40,11 +40,10 @@ func run() error {
 	}
 
 	// 4. Initialize structured logger.
-	logger := dropper.NewLogger(cfg.Dropper.Logging)
-
 	info := version.MustGet()
+	logger := dropper.NewLogger(cfg.Dropper.Logging, info.Project.Version)
+
 	logger.Info(dropper.LogMsgStarting,
-		dropper.LogFieldVersion, info.Project.Version,
 		dropper.LogFieldPort, cfg.Dropper.ListenPort,
 		dropper.LogFieldRootDir, cfg.Dropper.RootDir,
 		dropper.LogFieldReadonly, cfg.Dropper.Readonly,
@@ -80,7 +79,7 @@ func run() error {
 	defer cancel()
 
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		logger.Error(dropper.LogMsgShutdownStarted, dropper.LogFieldError, err)
+		logger.Error(dropper.ErrMsgShutdownError, dropper.LogFieldError, err)
 	}
 
 	logger.Info(dropper.LogMsgShutdownComplete)
