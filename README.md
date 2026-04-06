@@ -170,6 +170,7 @@ internal/                    -- flat package, files named dropper.{concern}.go
   dropper.fs.go              -- filesystem operations, path jail
   dropper.session.go         -- in-memory session store
   dropper.ratelimit.go       -- per-IP rate limiter
+  dropper.csrf.go            -- CSRF Origin/Referer validation
   dropper.audit.go           -- JSON lines audit logger
   dropper.templates.go       -- template rendering
 embed.go                     -- go:embed for versions.yaml, static/*, templates/*

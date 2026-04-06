@@ -14,17 +14,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `X-Permitted-Cross-Domain-Policies: none` security header
 - `dropper.csrf.go` — CSRF middleware with host:port comparison (scheme-agnostic)
 - `ErrCSRFRejected` sentinel error and `NewCSRFError()` constructor
-- CSRF constants: `HeaderOrigin`, `HeaderReferer`, `ErrCodeCSRF`, safe method constants
+- `ErrDirExists` sentinel error and `NewDirExistsError()` constructor (409 Conflict)
 - ADR-006: CSRF approach documentation (SameSite=Strict primary, Origin validation defense-in-depth)
 - E2E smoke tests expanded from 9 to 25+ assertions: file upload, download, browse, mkdir, security headers, CSRF rejection, readonly mode enforcement, extension filtering
 - Container restart helper in smoke test for multi-config E2E scenarios
-- CSRF middleware unit tests (15 tests: safe methods, matching/mismatched Origin/Referer, lenient missing headers, port mismatch)
-- `extractHostFromURL` unit tests (8 cases)
+- CSRF middleware unit tests (16 tests: safe methods, matching/mismatched Origin/Referer, lenient missing headers, port mismatch, malformed Origin)
+- `extractHostFromURL` and `isSafeMethod` unit tests
+- Full Playwright browser E2E verification (login, upload, download, mkdir, navigation, bookmarks, sorting, dark mode, responsive, CSRF, auth protection)
+
+### Fixed
+- `CreateDirectory` now returns 409 Conflict when directory already exists (was 500 Internal Server Error)
 
 ### Changed
 - `securityHeadersMiddleware` extended with 3 additional security headers (6 total)
 - Smoke test POST requests include `Origin` header for CSRF compliance
 - CSP `'unsafe-inline'` for styles documented with rationale in constants
+- `.gitignore` updated with Playwright artifact exclusions
 
 ## [0.10.0] - 2026-04-06
 

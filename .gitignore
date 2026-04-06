@@ -49,3 +49,6 @@ bin/
 # Runtime data
 data/
 *.log
+
+# Playwright MCP artifacts
+.playwright-mcp/
