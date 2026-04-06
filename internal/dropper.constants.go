@@ -56,8 +56,16 @@ const EnvSecret = EnvPrefix + "_SECRET"
 
 const (
 	DefaultConfigName     = "dropper"
+	ConfigFileType        = "yaml"
 	ConfigSearchPathLocal = "./configs"
 	ConfigSearchPathEtc   = "/etc/dropper"
+)
+
+// --- CLI flags ---
+
+const (
+	FlagConfigName  = "config"
+	FlagConfigUsage = "path to config file"
 )
 
 // --- Default config values ---
@@ -154,6 +162,13 @@ const (
 	LogFormatConsole = "console"
 )
 
+// --- Log output values ---
+
+const (
+	LogOutputStdout = "stdout"
+	LogOutputStderr = "stderr"
+)
+
 // --- Log level values ---
 
 const (
@@ -168,6 +183,12 @@ const (
 const (
 	HealthStatusOK = "ok"
 	DiskPercent100 = 100.0
+)
+
+// --- Fatal output format ---
+
+const (
+	FatalFormat = "fatal: %v\n"
 )
 
 // --- Error messages ---

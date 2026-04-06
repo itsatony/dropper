@@ -45,7 +45,7 @@ func (c *DropperConfig) SessionTTLDuration() (time.Duration, error) {
 // If path is empty, searches standard locations (./configs/, /etc/dropper/).
 func LoadConfig(path string) (*Config, error) {
 	v := viper.New()
-	v.SetConfigType("yaml")
+	v.SetConfigType(ConfigFileType)
 
 	if path != "" {
 		v.SetConfigFile(path)

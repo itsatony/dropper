@@ -16,7 +16,7 @@ import (
 
 func main() {
 	if err := run(); err != nil {
-		fmt.Fprintf(os.Stderr, "fatal: %v\n", err)
+		fmt.Fprintf(os.Stderr, dropper.FatalFormat, err)
 		os.Exit(1)
 	}
 }
@@ -30,7 +30,7 @@ func run() error {
 	}
 
 	// 2. Parse flags.
-	configPath := flag.String("config", "", "path to config file")
+	configPath := flag.String(dropper.FlagConfigName, "", dropper.FlagConfigUsage)
 	flag.Parse()
 
 	// 3. Load config (YAML + env overrides).
