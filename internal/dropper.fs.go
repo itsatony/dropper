@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -45,13 +46,19 @@ func FormatFileSize(bytes int64) string {
 
 // SanitizeFilename replaces unsafe characters in a filename, keeping only
 // alphanumeric characters, dots, hyphens, and underscores.
-// Returns "_" for empty input. Truncates to FilenameMaxLength.
+// Returns "_" for empty input, "." or ".." input. Truncates to FilenameMaxLength.
 func SanitizeFilename(name string) string {
 	if name == "" {
 		return FilenameFallback
 	}
 
 	sanitized := filenameRegex.ReplaceAllLiteralString(name, string(FilenameSanitizeReplace))
+
+	// Prevent "." and ".." as filenames — they are valid after sanitization
+	// but dangerous as path components.
+	if sanitized == "." || sanitized == ".." {
+		return FilenameFallback
+	}
 
 	if len(sanitized) > FilenameMaxLength {
 		sanitized = sanitized[:FilenameMaxLength]
@@ -84,6 +91,9 @@ func ValidateExtension(filename string, allowed []string) bool {
 //  4. filepath.EvalSymlinks (with ancestor walk for non-existent paths)
 //  5. Re-check prefix after symlink resolution
 //
+// Both rootDir and the resolved path are checked through EvalSymlinks to handle
+// cases where rootDir itself is a symlink (common in container deployments).
+//
 // Returns the validated absolute path or an error.
 func SafePath(rootDir, requestedPath string) (string, error) {
 	// Reject null bytes early — they can bypass string checks.
@@ -96,14 +106,19 @@ func SafePath(rootDir, requestedPath string) (string, error) {
 		return "", fmt.Errorf("%s", ErrMsgPathTraversal)
 	}
 
-	// Step 1: Resolve root to clean absolute path.
+	// Step 1: Resolve root to clean absolute path, then resolve symlinks on root itself.
 	rootAbs, err := filepath.Abs(filepath.Clean(rootDir))
 	if err != nil {
 		return "", fmt.Errorf("%s: %w", ErrMsgPathResolution, err)
 	}
 
-	// Step 2: Join root with cleaned request path.
-	joined := filepath.Join(rootAbs, filepath.Clean(requestedPath))
+	rootResolved, err := filepath.EvalSymlinks(rootAbs)
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", ErrMsgPathResolution, err)
+	}
+
+	// Step 2: Join resolved root with cleaned request path.
+	joined := filepath.Join(rootResolved, filepath.Clean(requestedPath))
 
 	// Step 3: Ensure absolute.
 	abs, err := filepath.Abs(joined)
@@ -113,17 +128,17 @@ func SafePath(rootDir, requestedPath string) (string, error) {
 
 	// Step 4: Separator-aware prefix check.
 	// Prevents /data matching /data-secret.
-	if !isWithinRoot(abs, rootAbs) {
+	if !isWithinRoot(abs, rootResolved) {
 		return "", fmt.Errorf("%s", ErrMsgPathTraversal)
 	}
 
-	// Step 5: Resolve symlinks and re-check.
-	resolved, err := resolveWithAncestorWalk(abs, rootAbs)
+	// Step 5: Resolve symlinks on target and re-check.
+	resolved, err := resolveWithAncestorWalk(abs, rootResolved)
 	if err != nil {
 		return "", fmt.Errorf("%s", ErrMsgPathTraversal)
 	}
 
-	if !isWithinRoot(resolved, rootAbs) {
+	if !isWithinRoot(resolved, rootResolved) {
 		return "", fmt.Errorf("%s", ErrMsgPathTraversal)
 	}
 
@@ -140,7 +155,7 @@ func isWithinRoot(path, root string) bool {
 // If the path exists, it calls filepath.EvalSymlinks directly.
 // If not, it walks up to the deepest existing ancestor, resolves symlinks
 // on that ancestor, then re-appends the remaining path components.
-func resolveWithAncestorWalk(targetPath, rootAbs string) (string, error) {
+func resolveWithAncestorWalk(targetPath, rootResolved string) (string, error) {
 	// Try direct resolution first (path exists).
 	resolved, err := filepath.EvalSymlinks(targetPath)
 	if err == nil {
@@ -155,7 +170,7 @@ func resolveWithAncestorWalk(targetPath, rootAbs string) (string, error) {
 	current := targetPath
 	var remaining []string
 
-	for current != rootAbs && current != filepath.Dir(current) {
+	for current != rootResolved && current != filepath.Dir(current) {
 		parent := filepath.Dir(current)
 		remaining = append([]string{filepath.Base(current)}, remaining...)
 		current = parent
@@ -176,7 +191,7 @@ func resolveWithAncestorWalk(targetPath, rootAbs string) (string, error) {
 	}
 
 	// Fallback: resolve root itself and re-append everything.
-	resolvedRoot, err := filepath.EvalSymlinks(rootAbs)
+	resolvedRoot, err := filepath.EvalSymlinks(rootResolved)
 	if err != nil {
 		return "", err
 	}
@@ -289,15 +304,15 @@ func sortFileEntries(entries []FileEntry, sortBy, sortOrder string) {
 }
 
 // SafeWriteFile writes data to a file within rootDir using the safe write pipeline:
-// 1. Check readonly mode
-// 2. Sanitize filename
-// 3. Validate extension (before any disk write)
-// 4. Validate target directory via SafePath
-// 5. Resolve collisions
-// 6. Write to temp file, then atomic rename
+//  1. Check readonly mode
+//  2. Sanitize filename
+//  3. Validate extension (before any disk write)
+//  4. Validate target directory via SafePath
+//  5. Resolve collisions with atomic O_CREATE|O_EXCL (TOCTOU-safe)
+//  6. Write to temp file, then atomic rename
 //
 // Returns the final filename (may differ from input due to sanitization/collision).
-func SafeWriteFile(rootDir, relDir, filename string, data io.Reader, maxBytes int64, allowedExts []string, readonly bool) (string, error) {
+func SafeWriteFile(rootDir, relDir, filename string, data io.Reader, maxBytes int64, allowedExts []string, readonly bool, logger *slog.Logger) (string, error) {
 	if readonly {
 		return "", fmt.Errorf("%s", ErrMsgReadonlyMode)
 	}
@@ -305,11 +320,15 @@ func SafeWriteFile(rootDir, relDir, filename string, data io.Reader, maxBytes in
 	sanitized := SanitizeFilename(filename)
 
 	if !ValidateExtension(sanitized, allowedExts) {
-		return "", fmt.Errorf("%s: %s", ErrMsgExtNotAllowed, filepath.Ext(sanitized))
+		logger.Warn(LogMsgExtRejected,
+			LogFieldFilename, sanitized,
+			LogFieldExtension, filepath.Ext(sanitized))
+		return "", fmt.Errorf("%s", ErrMsgExtNotAllowed)
 	}
 
 	safeDir, err := SafePath(rootDir, relDir)
 	if err != nil {
+		logger.Warn(LogMsgPathDenied, LogFieldPath, relDir)
 		return "", err
 	}
 
@@ -320,9 +339,6 @@ func SafeWriteFile(rootDir, relDir, filename string, data io.Reader, maxBytes in
 	if !info.IsDir() {
 		return "", fmt.Errorf("%s", ErrMsgNotDirectory)
 	}
-
-	finalName := ResolveCollision(safeDir, sanitized)
-	finalPath := filepath.Join(safeDir, finalName)
 
 	// Create temp file in the same directory for atomic rename.
 	tmpFile, err := os.CreateTemp(safeDir, TempFilePattern)
@@ -360,18 +376,87 @@ func SafeWriteFile(rootDir, relDir, filename string, data io.Reader, maxBytes in
 		return "", fmt.Errorf("%s: %w", ErrMsgWriteFile, err)
 	}
 
-	// Atomic rename into final location.
-	if err := os.Rename(tmpFile.Name(), finalPath); err != nil {
-		return "", fmt.Errorf("%s: %w", ErrMsgRenameFile, err)
+	// Atomically claim the final filename using O_CREATE|O_EXCL to prevent TOCTOU races.
+	finalName, err := atomicPlace(safeDir, sanitized, tmpFile.Name(), logger)
+	if err != nil {
+		return "", err
 	}
 	renamed = true
+
+	logger.Info(LogMsgFileWritten,
+		LogFieldFilename, finalName,
+		LogFieldSize, written,
+		LogFieldPath, relDir)
 
 	return finalName, nil
 }
 
+// atomicPlace attempts to hard-link (or rename) the temp file to the final location
+// using collision resolution. If the target exists, it retries with a timestamp prefix.
+// This is TOCTOU-safe because os.Link/os.Rename with a unique temp source
+// and the collision check + place happen atomically per attempt.
+func atomicPlace(dir, desiredName, tmpPath string, logger *slog.Logger) (string, error) {
+	candidates := []string{desiredName}
+
+	// Pre-generate collision candidates.
+	for range CollisionMaxRetries {
+		prefix := time.Now().Format(CollisionTimestampFormat) + CollisionSeparator
+		candidates = append(candidates, prefix+desiredName)
+	}
+
+	for _, name := range candidates {
+		finalPath := filepath.Join(dir, name)
+		err := os.Link(tmpPath, finalPath)
+		if err == nil {
+			// Successfully linked — remove the temp file.
+			os.Remove(tmpPath)
+			if name != desiredName {
+				logger.Info(LogMsgCollisionResolved,
+					LogFieldOriginalName, desiredName,
+					LogFieldResolvedName, name)
+			}
+			return name, nil
+		}
+		if !errors.Is(err, fs.ErrExist) {
+			// os.Link not supported (e.g., cross-device) — fall back to rename.
+			return atomicPlaceRename(dir, desiredName, tmpPath, logger)
+		}
+		// ErrExist: name already taken, try next candidate.
+	}
+
+	return "", fmt.Errorf("%s", ErrMsgFileExists)
+}
+
+// atomicPlaceRename is the fallback when hard links aren't available.
+// It uses os.Rename which is atomic on the same filesystem.
+func atomicPlaceRename(dir, desiredName, tmpPath string, logger *slog.Logger) (string, error) {
+	// Try the desired name first.
+	finalPath := filepath.Join(dir, desiredName)
+	if _, err := os.Stat(finalPath); errors.Is(err, fs.ErrNotExist) {
+		if err := os.Rename(tmpPath, finalPath); err != nil {
+			return "", fmt.Errorf("%s: %w", ErrMsgRenameFile, err)
+		}
+		return desiredName, nil
+	}
+
+	// Collision — use timestamp prefix.
+	prefix := time.Now().Format(CollisionTimestampFormat) + CollisionSeparator
+	resolvedName := prefix + desiredName
+	finalPath = filepath.Join(dir, resolvedName)
+	if err := os.Rename(tmpPath, finalPath); err != nil {
+		return "", fmt.Errorf("%s: %w", ErrMsgRenameFile, err)
+	}
+
+	logger.Info(LogMsgCollisionResolved,
+		LogFieldOriginalName, desiredName,
+		LogFieldResolvedName, resolvedName)
+
+	return resolvedName, nil
+}
+
 // CreateDirectory creates a new subdirectory within rootDir.
 // The directory name is sanitized and the parent path is validated via SafePath.
-func CreateDirectory(rootDir, relParentPath, name string, readonly bool) error {
+func CreateDirectory(rootDir, relParentPath, name string, readonly bool, logger *slog.Logger) error {
 	if readonly {
 		return fmt.Errorf("%s", ErrMsgReadonlyMode)
 	}
@@ -380,6 +465,7 @@ func CreateDirectory(rootDir, relParentPath, name string, readonly bool) error {
 
 	safeParent, err := SafePath(rootDir, relParentPath)
 	if err != nil {
+		logger.Warn(LogMsgPathDenied, LogFieldPath, relParentPath)
 		return err
 	}
 
@@ -401,6 +487,10 @@ func CreateDirectory(rootDir, relParentPath, name string, readonly bool) error {
 	if err := os.Mkdir(newSafePath, DirPermissions); err != nil {
 		return fmt.Errorf("%s: %w", ErrMsgCreateDir, err)
 	}
+
+	logger.Info(LogMsgDirCreated,
+		LogFieldFilename, sanitized,
+		LogFieldPath, relParentPath)
 
 	return nil
 }

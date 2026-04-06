@@ -13,6 +13,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// safeFilenamePattern validates sanitized filenames contain only allowed characters.
+// Compiled once at package level per reviewer finding #9.
+var safeFilenamePattern = regexp.MustCompile(`^[a-zA-Z0-9_.\-]+$`)
+
 // --- FormatFileSize tests ---
 
 func TestFormatFileSize(t *testing.T) {
@@ -56,11 +60,15 @@ func TestSanitizeFilename(t *testing.T) {
 		{name: "unicode replaced", input: "café.png", want: "caf_.png"},
 		{name: "empty string", input: "", want: FilenameFallback},
 		{name: "dots allowed", input: "...", want: "..."},
+		{name: "single dot becomes fallback", input: ".", want: FilenameFallback},
+		{name: "double dot becomes fallback", input: "..", want: FilenameFallback},
 		{name: "dash allowed", input: "-file.txt", want: "-file.txt"},
 		{name: "special chars replaced", input: "hello world!@#.jpg", want: "hello_world___.jpg"},
 		{name: "null byte replaced", input: "\x00evil", want: "_evil"},
 		{name: "underscore preserved", input: "my_file_v2.tar.gz", want: "my_file_v2.tar.gz"},
 		{name: "all unsafe chars", input: "~`!@#$%^&*()+=[]{}", want: "__________________"},
+		{name: "only path separators", input: "////", want: "____"},
+		{name: "backslashes", input: `a\b\c`, want: "a_b_c"},
 		{
 			name:  "long filename truncated",
 			input: strings.Repeat("a", 300),
@@ -74,17 +82,10 @@ func TestSanitizeFilename(t *testing.T) {
 			got := SanitizeFilename(tt.input)
 			assert.Equal(t, tt.want, got)
 			// Verify result only contains safe characters.
-			if got != FilenameFallback {
-				assert.True(t, isFilenameSafe(got), "sanitized filename contains unsafe characters: %q", got)
-			}
+			assert.True(t, safeFilenamePattern.MatchString(got),
+				"sanitized filename contains unsafe characters: %q", got)
 		})
 	}
-}
-
-// isFilenameSafe checks that a filename contains only allowed characters.
-func isFilenameSafe(name string) bool {
-	safe := regexp.MustCompile(`^[a-zA-Z0-9_.\-]+$`)
-	return safe.MatchString(name)
 }
 
 // --- ValidateExtension tests ---
@@ -137,7 +138,7 @@ func TestSafePath(t *testing.T) {
 	symlinkOutside := filepath.Join(root, "link-outside")
 	require.NoError(t, os.Symlink(outsideDir, symlinkOutside))
 
-	rootAbs, err := filepath.Abs(root)
+	rootAbs, err := filepath.EvalSymlinks(root)
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -198,6 +199,26 @@ func TestSafePath_RootPrefixCollision(t *testing.T) {
 	_, err := SafePath(root, "escape")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), ErrMsgPathTraversal)
+}
+
+func TestSafePath_SymlinkRoot(t *testing.T) {
+	// Test that SafePath works when rootDir itself is a symlink.
+	realRoot := t.TempDir()
+	subdir := filepath.Join(realRoot, "subdir")
+	require.NoError(t, os.MkdirAll(subdir, DirPermissions))
+	require.NoError(t, os.WriteFile(filepath.Join(subdir, "file.txt"), []byte("data"), FilePermissions))
+
+	// Create a symlink to realRoot.
+	symlinkRoot := filepath.Join(t.TempDir(), "symlink-root")
+	require.NoError(t, os.Symlink(realRoot, symlinkRoot))
+
+	// SafePath through the symlinked root should work.
+	got, err := SafePath(symlinkRoot, "subdir/file.txt")
+	require.NoError(t, err)
+
+	realRootResolved, err := filepath.EvalSymlinks(realRoot)
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(realRootResolved, "subdir", "file.txt"), got)
 }
 
 // --- ResolveCollision tests ---
@@ -381,11 +402,13 @@ func TestListDirectory(t *testing.T) {
 // --- SafeWriteFile tests ---
 
 func TestSafeWriteFile(t *testing.T) {
+	logger := testLogger()
+
 	t.Run("successful write", func(t *testing.T) {
 		root := t.TempDir()
 		data := bytes.NewReader([]byte("hello world"))
 
-		finalName, err := SafeWriteFile(root, "", "test.txt", data, DefaultMaxUploadBytes, nil, false)
+		finalName, err := SafeWriteFile(root, "", "test.txt", data, DefaultMaxUploadBytes, nil, false, logger)
 		require.NoError(t, err)
 		assert.Equal(t, "test.txt", finalName)
 
@@ -394,13 +417,27 @@ func TestSafeWriteFile(t *testing.T) {
 		assert.Equal(t, "hello world", string(content))
 	})
 
+	t.Run("file permissions set correctly", func(t *testing.T) {
+		root := t.TempDir()
+		data := bytes.NewReader([]byte("perm check"))
+
+		finalName, err := SafeWriteFile(root, "", "perms.txt", data, DefaultMaxUploadBytes, nil, false, logger)
+		require.NoError(t, err)
+
+		info, err := os.Stat(filepath.Join(root, finalName))
+		require.NoError(t, err)
+		assert.Equal(t, FilePermissions, info.Mode().Perm())
+	})
+
 	t.Run("extension rejected no file on disk", func(t *testing.T) {
 		root := t.TempDir()
 		data := bytes.NewReader([]byte("data"))
 
-		_, err := SafeWriteFile(root, "", "evil.exe", data, DefaultMaxUploadBytes, []string{".png", ".jpg"}, false)
+		_, err := SafeWriteFile(root, "", "evil.exe", data, DefaultMaxUploadBytes, []string{".png", ".jpg"}, false, logger)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), ErrMsgExtNotAllowed)
+		// Verify error does NOT contain the extension (no info leakage).
+		assert.NotContains(t, err.Error(), ".exe")
 
 		// Verify no file was created.
 		entries, _ := os.ReadDir(root)
@@ -411,7 +448,7 @@ func TestSafeWriteFile(t *testing.T) {
 		root := t.TempDir()
 		data := bytes.NewReader([]byte("data"))
 
-		_, err := SafeWriteFile(root, "", "test.txt", data, DefaultMaxUploadBytes, nil, true)
+		_, err := SafeWriteFile(root, "", "test.txt", data, DefaultMaxUploadBytes, nil, true, logger)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), ErrMsgReadonlyMode)
 
@@ -424,7 +461,7 @@ func TestSafeWriteFile(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(root, "existing.txt"), []byte("old"), FilePermissions))
 
 		data := bytes.NewReader([]byte("new content"))
-		finalName, err := SafeWriteFile(root, "", "existing.txt", data, DefaultMaxUploadBytes, nil, false)
+		finalName, err := SafeWriteFile(root, "", "existing.txt", data, DefaultMaxUploadBytes, nil, false, logger)
 		require.NoError(t, err)
 
 		assert.NotEqual(t, "existing.txt", finalName)
@@ -445,7 +482,7 @@ func TestSafeWriteFile(t *testing.T) {
 		root := t.TempDir()
 		data := bytes.NewReader([]byte("safe content"))
 
-		finalName, err := SafeWriteFile(root, "", "my file (1).txt", data, DefaultMaxUploadBytes, nil, false)
+		finalName, err := SafeWriteFile(root, "", "my file (1).txt", data, DefaultMaxUploadBytes, nil, false, logger)
 		require.NoError(t, err)
 		assert.Equal(t, "my_file__1_.txt", finalName)
 
@@ -457,7 +494,7 @@ func TestSafeWriteFile(t *testing.T) {
 		root := t.TempDir()
 		data := bytes.NewReader(bytes.Repeat([]byte("x"), 2048))
 
-		_, err := SafeWriteFile(root, "", "big.txt", data, 1024, nil, false)
+		_, err := SafeWriteFile(root, "", "big.txt", data, 1024, nil, false, logger)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), ErrMsgFileTooLarge)
 
@@ -466,12 +503,25 @@ func TestSafeWriteFile(t *testing.T) {
 		assert.Empty(t, entries)
 	})
 
+	t.Run("max bytes exact boundary passes", func(t *testing.T) {
+		root := t.TempDir()
+		data := bytes.NewReader(bytes.Repeat([]byte("x"), 1024))
+
+		finalName, err := SafeWriteFile(root, "", "exact.txt", data, 1024, nil, false, logger)
+		require.NoError(t, err)
+		assert.Equal(t, "exact.txt", finalName)
+
+		content, err := os.ReadFile(filepath.Join(root, "exact.txt"))
+		require.NoError(t, err)
+		assert.Len(t, content, 1024)
+	})
+
 	t.Run("temp files cleaned on failure", func(t *testing.T) {
 		root := t.TempDir()
 		data := bytes.NewReader(bytes.Repeat([]byte("x"), 100))
 
 		// Reject by extension — nothing should remain.
-		_, err := SafeWriteFile(root, "", "file.exe", data, DefaultMaxUploadBytes, []string{".png"}, false)
+		_, err := SafeWriteFile(root, "", "file.exe", data, DefaultMaxUploadBytes, []string{".png"}, false, logger)
 		require.Error(t, err)
 
 		entries, _ := os.ReadDir(root)
@@ -484,7 +534,7 @@ func TestSafeWriteFile(t *testing.T) {
 		require.NoError(t, os.Mkdir(subdir, DirPermissions))
 
 		data := bytes.NewReader([]byte("subdir content"))
-		finalName, err := SafeWriteFile(root, "uploads", "doc.pdf", data, DefaultMaxUploadBytes, nil, false)
+		finalName, err := SafeWriteFile(root, "uploads", "doc.pdf", data, DefaultMaxUploadBytes, nil, false, logger)
 		require.NoError(t, err)
 		assert.Equal(t, "doc.pdf", finalName)
 
@@ -497,7 +547,7 @@ func TestSafeWriteFile(t *testing.T) {
 		root := t.TempDir()
 		data := bytes.NewReader([]byte("escape"))
 
-		_, err := SafeWriteFile(root, "../etc", "passwd", data, DefaultMaxUploadBytes, nil, false)
+		_, err := SafeWriteFile(root, "../etc", "passwd", data, DefaultMaxUploadBytes, nil, false, logger)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), ErrMsgPathTraversal)
 	})
@@ -506,9 +556,11 @@ func TestSafeWriteFile(t *testing.T) {
 // --- CreateDirectory tests ---
 
 func TestCreateDirectory(t *testing.T) {
+	logger := testLogger()
+
 	t.Run("successful creation", func(t *testing.T) {
 		root := t.TempDir()
-		err := CreateDirectory(root, "", "newdir", false)
+		err := CreateDirectory(root, "", "newdir", false, logger)
 		require.NoError(t, err)
 
 		info, err := os.Stat(filepath.Join(root, "newdir"))
@@ -518,7 +570,7 @@ func TestCreateDirectory(t *testing.T) {
 
 	t.Run("readonly mode rejects", func(t *testing.T) {
 		root := t.TempDir()
-		err := CreateDirectory(root, "", "newdir", true)
+		err := CreateDirectory(root, "", "newdir", true, logger)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), ErrMsgReadonlyMode)
 
@@ -528,7 +580,7 @@ func TestCreateDirectory(t *testing.T) {
 
 	t.Run("name sanitized", func(t *testing.T) {
 		root := t.TempDir()
-		err := CreateDirectory(root, "", "my dir (test)", false)
+		err := CreateDirectory(root, "", "my dir (test)", false, logger)
 		require.NoError(t, err)
 
 		info, err := os.Stat(filepath.Join(root, "my_dir__test_"))
@@ -538,7 +590,7 @@ func TestCreateDirectory(t *testing.T) {
 
 	t.Run("parent path jailed", func(t *testing.T) {
 		root := t.TempDir()
-		err := CreateDirectory(root, "../etc", "escape", false)
+		err := CreateDirectory(root, "../etc", "escape", false, logger)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), ErrMsgPathTraversal)
 	})
@@ -547,7 +599,7 @@ func TestCreateDirectory(t *testing.T) {
 		root := t.TempDir()
 		require.NoError(t, os.Mkdir(filepath.Join(root, "existing"), DirPermissions))
 
-		err := CreateDirectory(root, "", "existing", false)
+		err := CreateDirectory(root, "", "existing", false, logger)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), ErrMsgCreateDir)
 	})
@@ -556,7 +608,7 @@ func TestCreateDirectory(t *testing.T) {
 		root := t.TempDir()
 		require.NoError(t, os.Mkdir(filepath.Join(root, "parent"), DirPermissions))
 
-		err := CreateDirectory(root, "parent", "child", false)
+		err := CreateDirectory(root, "parent", "child", false, logger)
 		require.NoError(t, err)
 
 		info, err := os.Stat(filepath.Join(root, "parent", "child"))

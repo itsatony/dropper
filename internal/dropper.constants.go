@@ -1,6 +1,9 @@
 package dropper
 
-import "time"
+import (
+	"os"
+	"time"
+)
 
 // --- Service identity ---
 
@@ -226,6 +229,7 @@ const (
 	ErrMsgNotDirectory    = "path is not a directory"
 	ErrMsgNotFile         = "path is not a file"
 	ErrMsgFileTooLarge    = "file exceeds maximum upload size"
+	ErrMsgFileExists      = "file already exists after collision retries"
 )
 
 // --- Filesystem error codes ---
@@ -267,13 +271,14 @@ const (
 const (
 	CollisionTimestampFormat = "20060102-150405"
 	CollisionSeparator       = "_"
+	CollisionMaxRetries      = 10
 )
 
 // --- File permissions ---
 
 const (
-	DirPermissions  = 0755
-	FilePermissions = 0644
+	DirPermissions  os.FileMode = 0755
+	FilePermissions os.FileMode = 0644
 )
 
 // --- Temp file pattern ---
