@@ -22,6 +22,7 @@ type Server struct {
 	config       *Config
 	logger       *slog.Logger
 	sessionStore *SessionStore
+	auditLogger  *AuditLogger
 }
 
 // NewServer creates a fully wired server with all routes and middleware.
@@ -32,6 +33,12 @@ func NewServer(cfg *Config, logger *slog.Logger, staticFS fs.FS, templateFS fs.F
 	r.Use(chiMiddleware.RequestID)
 	r.Use(chiMiddleware.RealIP)
 	r.Use(securityHeadersMiddleware)
+
+	// Create audit logger.
+	auditLogger, err := NewAuditLogger(cfg.Dropper.AuditLogPath, logger)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", ErrMsgAuditOpen, err)
+	}
 
 	// Create session store and rate limiter.
 	ttl, err := cfg.Dropper.SessionTTLDuration()
@@ -90,6 +97,7 @@ func NewServer(cfg *Config, logger *slog.Logger, staticFS fs.FS, templateFS fs.F
 		config:       cfg,
 		logger:       logger,
 		sessionStore: sessionStore,
+		auditLogger:  auditLogger,
 	}
 
 	return srv, nil
@@ -105,15 +113,25 @@ func (s *Server) Start() error {
 }
 
 // Shutdown gracefully shuts down the server with the given context deadline.
+// Shutdown order: stop session cleanup → drain HTTP connections → close audit log.
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.logger.Info(LogMsgShutdownStarted)
 	s.sessionStore.Stop()
-	return s.httpServer.Shutdown(ctx)
+	err := s.httpServer.Shutdown(ctx)
+	if closeErr := s.auditLogger.Close(); closeErr != nil {
+		s.logger.Error(ErrMsgAuditClose, LogFieldError, closeErr)
+	}
+	return err
 }
 
 // Router returns the chi router (exposed for testing).
 func (s *Server) Router() *chi.Mux {
 	return s.router
+}
+
+// AuditLogger returns the server's audit logger for use by handlers.
+func (s *Server) AuditLogger() *AuditLogger {
+	return s.auditLogger
 }
 
 // securityHeadersMiddleware adds security headers to all responses.

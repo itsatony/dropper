@@ -421,3 +421,40 @@ const (
 const (
 	SessionTokenLogPrefixLen = 8
 )
+
+// --- Audit actions ---
+
+const (
+	AuditActionUpload   = "upload"
+	AuditActionDownload = "download"
+	AuditActionMkdir    = "mkdir"
+)
+
+// --- Audit timestamp format ---
+
+const (
+	AuditTimestampFormat = "2006-01-02T15:04:05.999999999Z07:00" // time.RFC3339Nano
+)
+
+// --- Audit log messages ---
+
+const (
+	LogMsgAuditStarted  = "audit logger started"
+	LogMsgAuditClosed   = "audit logger closed"
+	LogMsgAuditDisabled = "audit logger disabled (no path configured)"
+	LogMsgAuditWriteErr = "failed to write audit entry"
+	LogMsgAuditReopened = "audit log file reopened"
+)
+
+// --- Audit error messages ---
+
+const (
+	ErrMsgAuditOpen  = "failed to open audit log file"
+	ErrMsgAuditClose = "failed to close audit log file"
+)
+
+// --- Audit log field names ---
+
+const (
+	LogFieldAuditPath = "audit_path"
+)

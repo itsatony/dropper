@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -22,7 +24,8 @@ project:
   version: "0.0.1-test"
 `
 
-func testConfig() *Config {
+func testConfig(t *testing.T) *Config {
+	t.Helper()
 	return &Config{
 		Dropper: DropperConfig{
 			ListenPort:     0,
@@ -31,7 +34,7 @@ func testConfig() *Config {
 			RateLimitLogin: DefaultRateLimitLogin,
 			RootDir:        "/tmp",
 			MaxUploadBytes: DefaultMaxUploadBytes,
-			AuditLogPath:   DefaultAuditLogPath,
+			AuditLogPath:   filepath.Join(t.TempDir(), DefaultAuditLogPath),
 			Logging: LoggingConfig{
 				Level:  DefaultLogLevel,
 				Format: DefaultLogFormat,
@@ -65,7 +68,7 @@ func initTestVersion(t *testing.T) {
 
 func TestServer_HealthzEndpoint(t *testing.T) {
 	initTestVersion(t)
-	cfg := testConfig()
+	cfg := testConfig(t)
 	srv, err := NewServer(cfg, testLogger(), nil, testTemplateFS())
 	require.NoError(t, err)
 
@@ -86,7 +89,7 @@ func TestServer_HealthzEndpoint(t *testing.T) {
 
 func TestServer_VersionEndpoint(t *testing.T) {
 	initTestVersion(t)
-	cfg := testConfig()
+	cfg := testConfig(t)
 	srv, err := NewServer(cfg, testLogger(), nil, testTemplateFS())
 	require.NoError(t, err)
 
@@ -111,7 +114,7 @@ func TestServer_VersionEndpoint(t *testing.T) {
 
 func TestServer_MetricsEndpoint(t *testing.T) {
 	initTestVersion(t)
-	cfg := testConfig()
+	cfg := testConfig(t)
 	srv, err := NewServer(cfg, testLogger(), nil, testTemplateFS())
 	require.NoError(t, err)
 
@@ -132,7 +135,7 @@ func TestServer_MetricsEndpoint(t *testing.T) {
 
 func TestServer_StaticFileServing(t *testing.T) {
 	initTestVersion(t)
-	cfg := testConfig()
+	cfg := testConfig(t)
 
 	testFS := fstest.MapFS{
 		"static/test.css": &fstest.MapFile{
@@ -159,7 +162,7 @@ func TestServer_StaticFileServing(t *testing.T) {
 
 func TestServer_SecurityHeaders(t *testing.T) {
 	initTestVersion(t)
-	cfg := testConfig()
+	cfg := testConfig(t)
 	srv, err := NewServer(cfg, testLogger(), nil, testTemplateFS())
 	require.NoError(t, err)
 
@@ -177,7 +180,7 @@ func TestServer_SecurityHeaders(t *testing.T) {
 
 func TestServer_NotFound(t *testing.T) {
 	initTestVersion(t)
-	cfg := testConfig()
+	cfg := testConfig(t)
 	srv, err := NewServer(cfg, testLogger(), nil, testTemplateFS())
 	require.NoError(t, err)
 
@@ -204,7 +207,7 @@ func noRedirectClient() *http.Client {
 
 func TestServer_LoginPage(t *testing.T) {
 	initTestVersion(t)
-	cfg := testConfig()
+	cfg := testConfig(t)
 	srv, err := NewServer(cfg, testLogger(), nil, testTemplateFS())
 	require.NoError(t, err)
 
@@ -225,7 +228,7 @@ func TestServer_LoginPage(t *testing.T) {
 
 func TestServer_LoginLogoutFlow(t *testing.T) {
 	initTestVersion(t)
-	cfg := testConfig()
+	cfg := testConfig(t)
 	srv, err := NewServer(cfg, testLogger(), nil, testTemplateFS())
 	require.NoError(t, err)
 
@@ -279,7 +282,7 @@ func TestServer_LoginLogoutFlow(t *testing.T) {
 
 func TestServer_UnauthenticatedRedirect(t *testing.T) {
 	initTestVersion(t)
-	cfg := testConfig()
+	cfg := testConfig(t)
 	srv, err := NewServer(cfg, testLogger(), nil, testTemplateFS())
 	require.NoError(t, err)
 
@@ -299,7 +302,7 @@ func TestServer_UnauthenticatedRedirect(t *testing.T) {
 
 func TestServer_PublicRoutesNoAuth(t *testing.T) {
 	initTestVersion(t)
-	cfg := testConfig()
+	cfg := testConfig(t)
 	srv, err := NewServer(cfg, testLogger(), nil, testTemplateFS())
 	require.NoError(t, err)
 
@@ -321,7 +324,7 @@ func TestServer_PublicRoutesNoAuth(t *testing.T) {
 
 func TestServer_LoginRateLimiting(t *testing.T) {
 	initTestVersion(t)
-	cfg := testConfig()
+	cfg := testConfig(t)
 	srv, err := NewServer(cfg, testLogger(), nil, testTemplateFS())
 	require.NoError(t, err)
 
@@ -351,7 +354,7 @@ func TestServer_LoginRateLimiting(t *testing.T) {
 
 func TestServer_Shutdown_StopsSessionCleanup(t *testing.T) {
 	initTestVersion(t)
-	cfg := testConfig()
+	cfg := testConfig(t)
 	srv, err := NewServer(cfg, testLogger(), nil, testTemplateFS())
 	require.NoError(t, err)
 
@@ -359,4 +362,39 @@ func TestServer_Shutdown_StopsSessionCleanup(t *testing.T) {
 	assert.NotPanics(t, func() {
 		_ = srv.Shutdown(t.Context())
 	})
+}
+
+// --- Audit logger integration tests ---
+
+func TestServer_AuditLogger_Initialized(t *testing.T) {
+	initTestVersion(t)
+	cfg := testConfig(t)
+	srv, err := NewServer(cfg, testLogger(), nil, testTemplateFS())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = srv.Shutdown(t.Context()) })
+
+	// Audit logger should be non-nil and enabled.
+	require.NotNil(t, srv.AuditLogger())
+
+	// Audit log file should exist at the configured path.
+	_, err = os.Stat(cfg.Dropper.AuditLogPath)
+	assert.NoError(t, err, "audit log file should exist after server creation")
+}
+
+func TestServer_Shutdown_ClosesAuditLogger(t *testing.T) {
+	initTestVersion(t)
+	cfg := testConfig(t)
+	srv, err := NewServer(cfg, testLogger(), nil, testTemplateFS())
+	require.NoError(t, err)
+
+	// Write an audit entry before shutdown.
+	srv.AuditLogger().Log(AuditEntry{
+		ClientIP: "10.0.0.1",
+		Action:   AuditActionUpload,
+		Path:     "/test.txt",
+		Success:  true,
+	})
+
+	// Shutdown should close audit logger without error.
+	assert.NoError(t, srv.Shutdown(t.Context()))
 }
